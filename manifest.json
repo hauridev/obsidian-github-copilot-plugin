@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-copilot-chat",
+  "name": "GitHub Copilot Chat",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "Chat with GitHub Copilot directly in Obsidian. Bearbeite Dokumente, erstelle neue Notizen und nutze deinen Vault als Kontext.",
+  "author": "Marcel Hauri",
+  "authorUrl": "https://github.com/hauridev",
+  "isDesktopOnly": true
+}
