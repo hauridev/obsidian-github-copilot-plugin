@@ -4,6 +4,9 @@ on:
     branches: [main]
     tags: ["*"]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 permissions:
   contents: write
 
@@ -42,7 +45,7 @@ jobs:
         run: |
           latest="${{ steps.latest_tag.outputs.tag }}"
           manifest="${{ steps.manifest_version.outputs.version }}"
-          if [ "$(printf '%s\n' "$latest" "$manifest" | sort -V | head -n1)" != "$latest" ]; then
+          if [ "$(printf '%s\n' "$latest" "$manifest" | sort -V | head -n1)" == "$latest" ] && [ "$latest" != "$manifest" ]; then
             echo "newer=true" >> $GITHUB_OUTPUT
           else
             echo "newer=false" >> $GITHUB_OUTPUT
