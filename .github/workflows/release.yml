@@ -1,74 +1,93 @@
 name: Release Obsidian Plugin
 on:
-    push:
-        # Sequence of patterns matched against refs/tags
-        tags:
-            - "*"
+  push:
+    branches: [main]
+    tags: ["*"]
 
 permissions:
-    contents: write
+  contents: write
 
 jobs:
-    build:
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v3
-              with:
-                  fetch-depth: 0 # otherwise, you will fail to push refs to dest repo
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-            - uses: actions/setup-node@v3
-              with:
-                  node-version: "21.x" # You might need to adjust this value to your own version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "21.x"
 
-            - uses: pnpm/action-setup@v2
-              name: Install pnpm
-              with:
-                  version: 8
-                  run_install: false
+      - uses: pnpm/action-setup@v4
+        name: Install pnpm
+        with:
+          version: 8
+          run_install: false
 
-            - name: Git Submodule Update
-              run: |
-                git submodule update --init
+      - name: Get latest tag
+        id: latest_tag
+        run: |
+          latest=$(git describe --abbrev=0 --tags 2>/dev/null || echo "0.0.0")
+          echo "tag=$latest" >> $GITHUB_OUTPUT
 
-            # Build the plugin
-            - name: Build
-              run: |
-                  pnpm i
-                  pnpm run build
+      - name: Get manifest version
+        id: manifest_version
+        run: |
+          version=$(jq -r '.version' manifest.json)
+          echo "version=$version" >> $GITHUB_OUTPUT
 
-            # Get the version number and put it in a variable
-            - name: Get version info
-              id: version
-              run: |
-                  echo "name=$(git describe --abbrev=0 --tags)" >> $GITHUB_OUTPUT
+      - name: Check for newer version
+        id: check
+        run: |
+          latest="${{ steps.latest_tag.outputs.tag }}"
+          manifest="${{ steps.manifest_version.outputs.version }}"
+          if [ "$(printf '%s\n' "$latest" "$manifest" | sort -V | head -n1)" != "$latest" ]; then
+            echo "newer=true" >> $GITHUB_OUTPUT
+          else
+            echo "newer=false" >> $GITHUB_OUTPUT
+          fi
 
-            - name: Prepare manifest file
-              run: |
-                  if [[ "${{ contains(steps.version.outputs.name, '-beta') }}" == 'true' ]]; then
-                    cp manifest-beta.json manifest.json
-                  else
-                    echo "do nothing"
-                  fi
-              shell: bash
+      - name: Build
+        if: steps.check.outputs.newer == 'true'
+        run: |
+          pnpm i
+          pnpm run build
 
-            # Package the required files into a zip
-            - name: Package plugin archive
-              run: |
-                  mkdir ${{ github.event.repository.name }}
-                  cp main.js styles.css manifest.json README.md ${{ github.event.repository.name }}
-                  zip -r ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip ${{ github.event.repository.name }}
+      - name: Get version info
+        if: steps.check.outputs.newer == 'true'
+        id: version
+        run: |
+          echo "name=$(git describe --abbrev=0 --tags 2>/dev/null || jq -r '.version' manifest.json)" >> $GITHUB_OUTPUT
 
-            # Create the release on GitHub
-            - name: Create release
-              uses: softprops/action-gh-release@v1
-              with:
-                  draft: true
-                  files: |
-                      ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip
-                      styles.css
-                      main.js
-                      manifest.json
-                  name: ${{ steps.version.outputs.name }}
-                  prerelease: ${{ endsWith(github.ref, '-beta') }}
-                  tag_name: ${{ github.ref }}
-                  token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Prepare manifest file
+        if: steps.check.outputs.newer == 'true'
+        run: |
+          if [[ "${{ contains(steps.version.outputs.name, '-beta') }}" == 'true' ]]; then
+            cp manifest-beta.json manifest.json
+          else
+            echo "do nothing"
+          fi
+        shell: bash
+
+      - name: Package plugin archive
+        if: steps.check.outputs.newer == 'true'
+        run: |
+          mkdir ${{ github.event.repository.name }}
+          cp main.js styles.css manifest.json README.md ${{ github.event.repository.name }}
+          zip -r ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip ${{ github.event.repository.name }}
+
+      - name: Create release
+        if: steps.check.outputs.newer == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip
+            styles.css
+            main.js
+            manifest.json
+          name: ${{ steps.version.outputs.name }}
+          prerelease: ${{ endsWith(github.ref, '-beta') }}
+          tag_name: ${{ github.ref }}
+          token: ${{ secrets.GITHUB_TOKEN }}
