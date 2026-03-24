@@ -80,6 +80,14 @@ jobs:
           cp main.js styles.css manifest.json README.md ${{ github.event.repository.name }}
           zip -r ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip ${{ github.event.repository.name }}
 
+      - name: Create git tag
+        if: steps.check.outputs.newer == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ steps.manifest_version.outputs.version }}
+          git push origin ${{ steps.manifest_version.outputs.version }}
+
       - name: Create release
         if: steps.check.outputs.newer == 'true'
         uses: softprops/action-gh-release@v2
@@ -87,9 +95,6 @@ jobs:
           draft: true
           files: |
             ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip
-            styles.css
-            main.js
-            manifest.json
           name: ${{ steps.version.outputs.name }}
           prerelease: ${{ contains(steps.version.outputs.name, '-beta') }}
           tag_name: ${{ steps.manifest_version.outputs.version }}
