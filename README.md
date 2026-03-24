@@ -6,7 +6,9 @@ Chat with GitHub Copilot directly in Obsidian — with OAuth login, real-time st
 
 - **Sidebar Chat** — persistent chat history in the right sidebar
 - **GitHub OAuth** — secure Device Flow login (no redirect, no API key required)
+- **GitHub Enterprise support** — authenticate against any `*.ghe.com` domain
 - **Streaming** — responses appear token by token in real time
+- **Subscription-based model list** — available models are fetched from the Copilot API and reflect your plan
 - **Active Document as Context** — Copilot sees the content of your currently open note
 - **Document Actions:**
   - **Append** the last response to the document
@@ -39,24 +41,35 @@ npm install
 # 3. Build the plugin
 npm run build
 
-# 4. Copy the plugin folder into your vault
-cp -r . /path/to/vault/.obsidian/plugins/obsidian-copilot-chat/
+# 4. Copy the required files into your vault
+mkdir -p /path/to/vault/.obsidian/plugins/obsidian-copilot-chat/
+cp main.js manifest.json styles.css /path/to/vault/.obsidian/plugins/obsidian-copilot-chat/
 ```
 
 Then in Obsidian: **Settings → Community Plugins → Installed Plugins** → enable "GitHub Copilot Chat".
 
 ## Login
 
+### GitHub.com
+
 1. Open **Settings → GitHub Copilot Chat**
 2. Click **"Sign in"**
 3. Visit the displayed URL (`https://github.com/login/device`) and enter the code
 4. The plugin detects the confirmation automatically — you're done
 
-The GitHub OAuth token is stored securely in Obsidian's plugin data (`data.json`). Copilot API tokens (short-lived, ~30 min) are held in memory and refreshed automatically.
+### GitHub Enterprise (`*.ghe.com`)
+
+1. Open **Settings → GitHub Copilot Chat**
+2. Under **GitHub Enterprise**, enter your domain (e.g. `mycompany.ghe.com`)
+3. Click **"Sign in"** and follow the same device flow — OAuth and API calls are routed through your enterprise domain automatically
+
+The GitHub OAuth token is stored securely in Obsidian's plugin data (`data.json`). Copilot API tokens (short-lived, ~30 min) are held in memory and refreshed automatically. Changing the enterprise domain clears the stored token and requires re-authentication.
 
 ## Models
 
-Selectable in settings:
+After signing in, click **"Load models"** in the Model section of the settings to fetch the models available for your Copilot subscription. The list is cached and updated on each login or manual refresh.
+
+If no models have been fetched yet, the following defaults are shown as a fallback:
 
 | Model | Notes |
 |-------|-------|
@@ -65,17 +78,19 @@ Selectable in settings:
 | `gpt-4` | — |
 | `claude-3.5-sonnet` | — |
 
-Availability depends on your Copilot plan.
+Actual availability depends on your Copilot plan.
 
 ## How the OAuth Flow Works
 
 This plugin uses the same Device Flow as GitHub CLI and the VS Code Copilot extension:
 
-1. Plugin requests a device code from `https://github.com/login/device/code`
-2. User visits `github.com/login/device` and enters the displayed code
-3. Plugin polls `https://github.com/login/oauth/access_token` until authorized
-4. The GitHub token is exchanged for a short-lived Copilot API token via `api.github.com/copilot_internal/v2/token`
+1. Plugin requests a device code from `{host}/login/device/code`
+2. User visits `{host}/login/device` and enters the displayed code
+3. Plugin polls `{host}/login/oauth/access_token` until authorized
+4. The GitHub token is exchanged for a short-lived Copilot API token via `api.{host}/copilot_internal/v2/token`
 5. The Copilot token is used for chat requests to `api.githubcopilot.com/chat/completions`
+
+`{host}` is `github.com` by default, or your configured enterprise domain (e.g. `mycompany.ghe.com`).
 
 The Client ID `Iv1.b507a08c87ecfe98` is the public VS Code Copilot extension OAuth app, the same one used by community tools for Neovim, Emacs, and JetBrains.
 

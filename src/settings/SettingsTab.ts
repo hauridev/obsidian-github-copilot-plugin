@@ -1,5 +1,5 @@
 // src/settings/SettingsTab.ts
-// Plugin-Einstellungen inkl. GitHub OAuth Login/Logout.
+// Plugin settings including GitHub OAuth login/logout and model selection.
 
 import { App, Notice, PluginSettingTab, Setting, setIcon } from "obsidian";
 import type CopilotChatPlugin from "../../main";
@@ -7,7 +7,6 @@ import type CopilotChatPlugin from "../../main";
 export class CopilotSettingTab extends PluginSettingTab {
   plugin: CopilotChatPlugin;
   private loginContainer: HTMLElement | null = null;
-  private deviceCodeInterval: ReturnType<typeof setInterval> | null = null;
 
   constructor(app: App, plugin: CopilotChatPlugin) {
     super(app, plugin);
@@ -20,8 +19,34 @@ export class CopilotSettingTab extends PluginSettingTab {
 
     containerEl.createEl("h2", { text: "GitHub Copilot Chat" });
 
-    // ── Auth Section ──────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Authentifizierung" });
+    // ── Enterprise ─────────────────────────────────────────────────────────
+    containerEl.createEl("h3", { text: "GitHub Enterprise" });
+
+    new Setting(containerEl)
+      .setName("Enterprise domain")
+      .setDesc(
+        "Leave empty for github.com. For GitHub Enterprise enter your domain, e.g. mycompany.ghe.com"
+      )
+      .addText((text) =>
+        text
+          .setPlaceholder("mycompany.ghe.com")
+          .setValue(this.plugin.settings.enterpriseDomain)
+          .onChange(async (value) => {
+            const domain = value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+            this.plugin.settings.enterpriseDomain = domain;
+            this.plugin.auth.enterpriseDomain = domain;
+            // Clear token from previous provider
+            this.plugin.settings.githubToken = "";
+            this.plugin.settings.githubLogin = "";
+            this.plugin.settings.availableModels = [];
+            this.plugin.auth.clearCache();
+            await this.plugin.saveSettings();
+            this.display();
+          })
+      );
+
+    // ── Authentication ────────────────────────────────────────────────────
+    containerEl.createEl("h3", { text: "Authentication" });
 
     if (this.plugin.settings.githubToken) {
       this.renderLoggedIn(containerEl);
@@ -30,30 +55,16 @@ export class CopilotSettingTab extends PluginSettingTab {
     }
 
     // ── Model ──────────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Modell" });
+    containerEl.createEl("h3", { text: "Model" });
 
-    new Setting(containerEl)
-      .setName("Copilot-Modell")
-      .setDesc("Welches Modell soll für den Chat verwendet werden?")
-      .addDropdown((drop) =>
-        drop
-          .addOption("gpt-4o", "GPT-4o (empfohlen)")
-          .addOption("gpt-4o-mini", "GPT-4o Mini (schneller)")
-          .addOption("gpt-4", "GPT-4")
-          .addOption("claude-3.5-sonnet", "Claude 3.5 Sonnet")
-          .setValue(this.plugin.settings.model)
-          .onChange(async (value) => {
-            this.plugin.settings.model = value;
-            await this.plugin.saveSettings();
-          })
-      );
+    this.renderModelSection(containerEl);
 
     // ── Context ────────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Kontext" });
+    containerEl.createEl("h3", { text: "Context" });
 
     new Setting(containerEl)
-      .setName("Aktives Dokument einbeziehen")
-      .setDesc("Inhalt des aktuell geöffneten Dokuments automatisch als Kontext mitsenden.")
+      .setName("Include active document")
+      .setDesc("Automatically send the content of the currently open document as context.")
       .addToggle((toggle) =>
         toggle
           .setValue(this.plugin.settings.includeActiveDocument)
@@ -64,8 +75,8 @@ export class CopilotSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Maximale Kontext-Länge")
-      .setDesc("Maximale Zeichenanzahl des Dokumentinhalts, der als Kontext gesendet wird.")
+      .setName("Maximum context length")
+      .setDesc("Maximum number of characters of document content sent as context.")
       .addSlider((slider) =>
         slider
           .setLimits(1000, 50000, 1000)
@@ -78,6 +89,61 @@ export class CopilotSettingTab extends PluginSettingTab {
       );
   }
 
+  private renderModelSection(containerEl: HTMLElement) {
+    const models = this.plugin.settings.availableModels;
+    const isLoggedIn = !!this.plugin.settings.githubToken;
+
+    const fallbackModels = [
+      { id: "gpt-4o", name: "GPT-4o (default)" },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini (faster)" },
+      { id: "gpt-4", name: "GPT-4" },
+      { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
+    ];
+
+    const displayModels = models.length > 0 ? models : fallbackModels;
+
+    const modelSetting = new Setting(containerEl)
+      .setName("Copilot model")
+      .setDesc(
+        models.length > 0
+          ? "Models available for your Copilot subscription."
+          : "Default models. Sign in and click 'Load models' to fetch the models available for your subscription."
+      )
+      .addDropdown((drop) => {
+        for (const m of displayModels) {
+          drop.addOption(m.id, m.name);
+        }
+        // Set current model; fall back to first if no longer available
+        const current = this.plugin.settings.model;
+        const available = displayModels.find((m) => m.id === current);
+        drop.setValue(available ? current : (displayModels[0]?.id ?? "gpt-4o"));
+        drop.onChange(async (value) => {
+          this.plugin.settings.model = value;
+          await this.plugin.saveSettings();
+        });
+        return drop;
+      });
+
+    if (isLoggedIn) {
+      modelSetting.addButton((btn) =>
+        btn
+          .setButtonText("Load models")
+          .setTooltip("Fetch available models from the Copilot API")
+          .onClick(async () => {
+            btn.setDisabled(true);
+            btn.setButtonText("Loading…");
+            try {
+              await this.plugin.fetchAndSaveModels();
+              new Notice("Models loaded successfully.");
+            } catch (e) {
+              new Notice(`Error loading models: ${e instanceof Error ? e.message : e}`);
+            }
+            this.display();
+          })
+      );
+    }
+  }
+
   private renderLoggedIn(containerEl: HTMLElement) {
     const login = this.plugin.settings.githubLogin;
     const infoEl = containerEl.createDiv({ cls: "copilot-settings-auth-info" });
@@ -85,23 +151,23 @@ export class CopilotSettingTab extends PluginSettingTab {
     const iconEl = infoEl.createSpan({ cls: "copilot-settings-auth-icon" });
     setIcon(iconEl, "check-circle");
     infoEl.createSpan({
-      text: `Angemeldet als @${login || "GitHub User"}`,
+      text: `Signed in as @${login || "GitHub User"}`,
       cls: "copilot-settings-auth-text",
     });
 
     new Setting(containerEl)
-      .setName("GitHub Konto")
-      .setDesc(`Eingeloggt als: ${login || "GitHub User"}`)
+      .setName("GitHub account")
+      .setDesc(`Signed in as: ${login || "GitHub User"}`)
       .addButton((btn) =>
         btn
-          .setButtonText("Abmelden")
+          .setButtonText("Sign out")
           .setWarning()
           .onClick(async () => {
             this.plugin.settings.githubToken = "";
             this.plugin.settings.githubLogin = "";
             await this.plugin.saveSettings();
             this.plugin.auth.clearCache();
-            new Notice("Erfolgreich abgemeldet.");
+            new Notice("Signed out successfully.");
             this.display();
           })
       );
@@ -110,15 +176,15 @@ export class CopilotSettingTab extends PluginSettingTab {
   private renderLoggedOut(containerEl: HTMLElement) {
     const desc = containerEl.createEl("p", { cls: "copilot-settings-desc" });
     desc.setText(
-      "Melde dich mit deinem GitHub-Konto an. Du benötigst ein aktives GitHub Copilot Abonnement."
+      "Sign in with your GitHub account. You need an active GitHub Copilot subscription."
     );
 
     new Setting(containerEl)
-      .setName("Mit GitHub anmelden")
-      .setDesc("Startet den sicheren Device-Flow (kein Browser-Redirect nötig).")
+      .setName("Sign in with GitHub")
+      .setDesc("Starts the secure device flow (no browser redirect required).")
       .addButton((btn) =>
         btn
-          .setButtonText("Anmelden")
+          .setButtonText("Sign in")
           .setCta()
           .onClick(() => this.startLoginFlow(containerEl))
       );
@@ -132,32 +198,31 @@ export class CopilotSettingTab extends PluginSettingTab {
 
     const loadingEl = this.loginContainer.createDiv({ cls: "copilot-login-loading" });
     setIcon(loadingEl.createSpan(), "loader");
-    loadingEl.createSpan({ text: " Device Code wird angefordert…" });
+    loadingEl.createSpan({ text: " Requesting device code…" });
 
     try {
       const deviceCode = await this.plugin.auth.requestDeviceCode();
 
       this.loginContainer.empty();
 
-      // Code-Anzeige
       const codeBox = this.loginContainer.createDiv({ cls: "copilot-login-box" });
 
       codeBox.createEl("p", {
-        text: "1. Öffne diese URL in deinem Browser:",
+        text: "1. Open this URL in your browser:",
         cls: "copilot-login-step",
       });
 
       const urlRow = codeBox.createDiv({ cls: "copilot-login-url-row" });
       urlRow.createEl("code", { text: deviceCode.verification_uri });
-      const copyUrlBtn = urlRow.createEl("button", { cls: "copilot-btn-icon", title: "Kopieren" });
+      const copyUrlBtn = urlRow.createEl("button", { cls: "copilot-btn-icon", title: "Copy" });
       setIcon(copyUrlBtn, "copy");
       copyUrlBtn.addEventListener("click", () => {
         navigator.clipboard.writeText(deviceCode.verification_uri);
-        new Notice("URL kopiert!");
+        new Notice("URL copied!");
       });
 
       codeBox.createEl("p", {
-        text: "2. Gib diesen Code ein:",
+        text: "2. Enter this code:",
         cls: "copilot-login-step",
       });
 
@@ -166,48 +231,52 @@ export class CopilotSettingTab extends PluginSettingTab {
         text: deviceCode.user_code,
         cls: "copilot-login-code",
       });
-      const copyCodeBtn = codeRow.createEl("button", { cls: "copilot-btn-icon", title: "Kopieren" });
+      const copyCodeBtn = codeRow.createEl("button", { cls: "copilot-btn-icon", title: "Copy" });
       setIcon(copyCodeBtn, "copy");
       copyCodeBtn.addEventListener("click", () => {
         navigator.clipboard.writeText(deviceCode.user_code);
-        new Notice("Code kopiert!");
+        new Notice("Code copied!");
       });
 
       const statusEl = codeBox.createEl("p", {
-        text: "⏳ Warte auf Bestätigung…",
+        text: "⏳ Waiting for confirmation…",
         cls: "copilot-login-status",
       });
 
-      // Pollt im Hintergrund
+      // Poll in the background
       this.plugin.auth
         .pollForToken(
           deviceCode.device_code,
           deviceCode.interval,
           deviceCode.expires_in,
           () => {
-            statusEl.setText("⏳ Noch warten…");
+            statusEl.setText("⏳ Still waiting…");
           }
         )
         .then(async (token) => {
-          // Token validieren und Login speichern
+          // Validate token and save login
           const { valid, login } = await this.plugin.auth.validateGitHubToken(token);
           if (!valid) {
-            statusEl.setText("❌ Token ungültig. Bitte erneut versuchen.");
+            statusEl.setText("❌ Token invalid. Please try again.");
             return;
           }
           this.plugin.settings.githubToken = token;
           this.plugin.settings.githubLogin = login ?? "";
           await this.plugin.saveSettings();
-          new Notice(`✓ Angemeldet als @${login}`);
+          new Notice(`✓ Signed in as @${login}`);
+          // Fetch available models right after login
+          try {
+            await this.plugin.fetchAndSaveModels();
+          } catch { /* ignore, models can be loaded manually */ }
           this.display();
         })
         .catch((err: Error) => {
-          statusEl.setText(`❌ Fehler: ${err.message}`);
+          statusEl.setText(`❌ Error: ${err.message}`);
         });
     } catch (err) {
       this.loginContainer.empty();
       this.loginContainer.createEl("p", {
-        text: `Fehler: ${err.message}`,
+        text: `Error: ${err instanceof Error ? err.message : err}`,
         cls: "copilot-login-error",
       });
     }

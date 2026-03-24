@@ -1,5 +1,5 @@
 // main.ts
-// Obsidian Plugin Entry Point
+// Obsidian plugin entry point
 
 import { Notice, Plugin, WorkspaceLeaf } from "obsidian";
 import { CopilotChatView, VIEW_TYPE_COPILOT_CHAT } from "./src/views/ChatView";
@@ -13,6 +13,8 @@ export interface CopilotPluginSettings {
   model: string;
   includeActiveDocument: boolean;
   maxContextChars: number;
+  enterpriseDomain: string;
+  availableModels: { id: string; name: string }[];
 }
 
 const DEFAULT_SETTINGS: CopilotPluginSettings = {
@@ -21,6 +23,8 @@ const DEFAULT_SETTINGS: CopilotPluginSettings = {
   model: "gpt-4o",
   includeActiveDocument: true,
   maxContextChars: 20000,
+  enterpriseDomain: "",
+  availableModels: [],
 };
 
 export default class CopilotChatPlugin extends Plugin {
@@ -31,48 +35,48 @@ export default class CopilotChatPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
 
-    this.auth = new GitHubAuth();
+    this.auth = new GitHubAuth(this.settings.enterpriseDomain);
 
     this.client = new CopilotClient(
       () => this.getCopilotToken(),
       this.settings.model
     );
 
-    // View registrieren
+    // Register view
     this.registerView(VIEW_TYPE_COPILOT_CHAT, (leaf) => {
       return new CopilotChatView(leaf, this, this.client);
     });
 
-    // Settings Tab
+    // Settings tab
     this.addSettingTab(new CopilotSettingTab(this.app, this));
 
-    // Ribbon Icon
-    this.addRibbonIcon("bot", "Copilot Chat öffnen", () => {
+    // Ribbon icon
+    this.addRibbonIcon("bot", "Open Copilot Chat", () => {
       this.activateChatView();
     });
 
     // Commands
     this.addCommand({
       id: "open-copilot-chat",
-      name: "Copilot Chat öffnen",
+      name: "Open Copilot Chat",
       callback: () => this.activateChatView(),
     });
 
     this.addCommand({
       id: "copilot-explain-selection",
-      name: "Auswahl erklären lassen",
+      name: "Explain selection",
       editorCallback: (editor) => {
         const selection = editor.getSelection();
         if (!selection) {
-          new Notice("Bitte zuerst Text auswählen.");
+          new Notice("Please select some text first.");
           return;
         }
         this.activateChatView().then(() => {
-          // Kurze Verzögerung damit die View geladen ist
+          // Short delay to ensure the view is loaded
           setTimeout(() => {
             const view = this.getChatView();
             if (view) {
-              view["inputEl"].value = `Erkläre mir folgenden Text:\n\n${selection}`;
+              view["inputEl"].value = `Explain the following text:\n\n${selection}`;
               view["autoResize"]();
             }
           }, 100);
@@ -82,18 +86,18 @@ export default class CopilotChatPlugin extends Plugin {
 
     this.addCommand({
       id: "copilot-improve-selection",
-      name: "Auswahl verbessern lassen",
+      name: "Improve selection",
       editorCallback: (editor) => {
         const selection = editor.getSelection();
         if (!selection) {
-          new Notice("Bitte zuerst Text auswählen.");
+          new Notice("Please select some text first.");
           return;
         }
         this.activateChatView().then(() => {
           setTimeout(() => {
             const view = this.getChatView();
             if (view) {
-              view["inputEl"].value = `Verbessere folgenden Text stilistisch und inhaltlich:\n\n${selection}`;
+              view["inputEl"].value = `Improve the following text stylistically and content-wise:\n\n${selection}`;
               view["autoResize"]();
             }
           }, 100);
@@ -103,25 +107,25 @@ export default class CopilotChatPlugin extends Plugin {
 
     this.addCommand({
       id: "copilot-summarize-document",
-      name: "Aktuelles Dokument zusammenfassen",
+      name: "Summarize current document",
       callback: async () => {
         const file = this.app.workspace.getActiveFile();
         if (!file) {
-          new Notice("Kein aktives Dokument.");
+          new Notice("No active document.");
           return;
         }
         await this.activateChatView();
         setTimeout(() => {
           const view = this.getChatView();
           if (view) {
-            view["inputEl"].value = `Fasse das aktuelle Dokument "${file.basename}" prägnant zusammen.`;
+            view["inputEl"].value = `Summarize the current document "${file.basename}" concisely.`;
             view["autoResize"]();
           }
         }, 100);
       },
     });
 
-    console.log("GitHub Copilot Chat Plugin geladen.");
+    console.log("GitHub Copilot Chat plugin loaded.");
   }
 
   onunload() {
@@ -136,9 +140,17 @@ export default class CopilotChatPlugin extends Plugin {
     await this.saveData(this.settings);
   }
 
+  async fetchAndSaveModels(): Promise<void> {
+    const models = await this.client.fetchModels();
+    if (models.length > 0) {
+      this.settings.availableModels = models;
+      await this.saveSettings();
+    }
+  }
+
   private async getCopilotToken(): Promise<string> {
     if (!this.settings.githubToken) {
-      throw new Error("Nicht angemeldet. Bitte zuerst in den Einstellungen anmelden.");
+      throw new Error("Not signed in. Please sign in via Settings first.");
     }
     return this.auth.getCopilotToken(this.settings.githubToken);
   }
@@ -150,20 +162,19 @@ export default class CopilotChatPlugin extends Plugin {
     const leaves = workspace.getLeavesOfType(VIEW_TYPE_COPILOT_CHAT);
 
     if (leaves.length > 0) {
-      leaf = leaves[0];
+      leaf = leaves[0] ?? null;
     } else {
-      leaf = workspace.getRightLeaf(false);
-      if (!leaf) leaf = workspace.getLeaf(true);
+      leaf = workspace.getRightLeaf(false) ?? workspace.getLeaf(true);
       await leaf.setViewState({ type: VIEW_TYPE_COPILOT_CHAT, active: true });
     }
 
-    workspace.revealLeaf(leaf);
+    if (leaf) workspace.revealLeaf(leaf);
   }
 
   private getChatView(): CopilotChatView | null {
     const leaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_COPILOT_CHAT);
     if (leaves.length === 0) return null;
-    const view = leaves[0].view;
+    const view = leaves[0]?.view;
     if (view instanceof CopilotChatView) return view;
     return null;
   }

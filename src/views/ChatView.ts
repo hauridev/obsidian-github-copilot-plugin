@@ -1,5 +1,5 @@
 // src/views/ChatView.ts
-// Hauptansicht: Sidebar Chat Panel mit Streaming, Dokument-Aktionen und Vault-Kontext.
+// Main view: sidebar chat panel with streaming, document actions, and vault context.
 
 import {
   ItemView,
@@ -20,7 +20,7 @@ export class CopilotChatView extends ItemView {
   private messages: ChatMessage[] = [];
   private isStreaming = false;
 
-  // DOM-Elemente
+  // DOM elements
   private messagesContainer: HTMLElement;
   private inputEl: HTMLTextAreaElement;
   private sendBtn: HTMLButtonElement;
@@ -48,7 +48,7 @@ export class CopilotChatView extends ItemView {
 
   async onOpen() {
     this.buildUI();
-    this.updateStatus("Bereit");
+    this.updateStatus("Ready");
   }
 
   async onClose() {}
@@ -69,17 +69,17 @@ export class CopilotChatView extends ItemView {
 
     const headerActions = header.createDiv({ cls: "copilot-header-actions" });
 
-    // Clear-Button
-    const clearBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Verlauf löschen" });
+    // Clear button
+    const clearBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Clear history" });
     setIcon(clearBtn, "trash-2");
     clearBtn.addEventListener("click", () => this.clearChat());
 
-    // Neues Dokument erstellen
-    const newDocBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Antwort als neue Notiz" });
+    // Create new note from response
+    const newDocBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Save response as new note" });
     setIcon(newDocBtn, "file-plus");
     newDocBtn.addEventListener("click", () => this.createNoteFromLastResponse());
 
-    // ── Kontext-Toggle ──
+    // ── Context toggle ──
     const contextBar = contentEl.createDiv({ cls: "copilot-context-bar" });
     this.contextToggle = contextBar.createEl("input", { type: "checkbox" });
     this.contextToggle.id = "copilot-ctx-toggle";
@@ -97,37 +97,37 @@ export class CopilotChatView extends ItemView {
     this.contextLabel = ctxLabelEl.createSpan({ cls: "copilot-ctx-text" });
     this.updateContextLabel();
 
-    // ── Nachrichten ──
+    // ── Messages ──
     this.messagesContainer = contentEl.createDiv({ cls: "copilot-messages" });
     this.renderWelcome();
 
-    // ── Input-Bereich ──
+    // ── Input area ──
     const inputArea = contentEl.createDiv({ cls: "copilot-input-area" });
 
-    // Aktionen über dem Input
+    // Action bar above input
     const actionBar = inputArea.createDiv({ cls: "copilot-action-bar" });
 
     const insertBtn = actionBar.createEl("button", {
       cls: "copilot-action-btn",
-      title: "Letzte Antwort ans Dokument-Ende anfügen",
+      title: "Append last response to end of document",
     });
     setIcon(insertBtn.createSpan(), "arrow-down-to-line");
-    insertBtn.createSpan({ text: " Anfügen" });
+    insertBtn.createSpan({ text: " Append" });
     insertBtn.addEventListener("click", () => this.appendLastResponseToDocument());
 
     const replaceBtn = actionBar.createEl("button", {
       cls: "copilot-action-btn",
-      title: "Auswahl mit letzter Antwort ersetzen",
+      title: "Replace selection with last response",
     });
     setIcon(replaceBtn.createSpan(), "replace");
-    replaceBtn.createSpan({ text: " Ersetzen" });
+    replaceBtn.createSpan({ text: " Replace" });
     replaceBtn.addEventListener("click", () => this.replaceSelectionWithLastResponse());
 
     // Textarea + Send
     const inputRow = inputArea.createDiv({ cls: "copilot-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
       cls: "copilot-input",
-      placeholder: "Nachricht eingeben… (Shift+Enter für Zeilenumbruch)",
+      placeholder: "Type a message… (Shift+Enter for new line)",
     });
     this.inputEl.rows = 3;
     this.inputEl.addEventListener("keydown", (e) => {
@@ -142,15 +142,15 @@ export class CopilotChatView extends ItemView {
     setIcon(this.sendBtn, "send");
     this.sendBtn.addEventListener("click", () => this.sendMessage());
 
-    // Status
+    // Status bar
     this.statusBar = contentEl.createDiv({ cls: "copilot-status" });
   }
 
   private updateContextLabel() {
     const active = this.plugin.settings.includeActiveDocument;
     const file = this.app.workspace.getActiveFile();
-    const name = file ? file.basename : "kein Dokument geöffnet";
-    this.contextLabel.setText(active ? `Kontext: ${name}` : "Kein Kontext");
+    const name = file ? file.basename : "no document open";
+    this.contextLabel.setText(active ? `Context: ${name}` : "No context");
     this.contextToggle.checked = active;
   }
 
@@ -159,11 +159,11 @@ export class CopilotChatView extends ItemView {
     const iconEl = welcome.createDiv({ cls: "copilot-welcome-icon" });
     setIcon(iconEl, "bot");
     welcome.createEl("p", {
-      text: "Hallo! Ich bin GitHub Copilot. Wie kann ich dir helfen?",
+      text: "Hello! I'm GitHub Copilot. How can I help you?",
       cls: "copilot-welcome-text",
     });
     welcome.createEl("p", {
-      text: "Aktiviere den Kontext-Toggle oben, um dein aktuelles Dokument als Kontext einzubinden.",
+      text: "Enable the context toggle above to include your active document as context.",
       cls: "copilot-welcome-hint",
     });
   }
@@ -180,21 +180,21 @@ export class CopilotChatView extends ItemView {
     this.sendBtn.disabled = true;
     this.sendBtn.classList.add("loading");
 
-    // Ggf. Welcome-Screen entfernen
+    // Remove welcome screen if present
     const welcome = this.messagesContainer.querySelector(".copilot-welcome");
     welcome?.remove();
 
-    // User-Nachricht anzeigen
+    // Render user message
     this.renderMessage("user", text);
 
-    // Context aufbauen
+    // Build context
     const apiMessages = await this.buildApiMessages(text);
 
-    // Assistenten-Bubble vorbereiten
+    // Prepare assistant bubble
     const assistantBubble = this.renderMessage("assistant", "");
     const contentEl = assistantBubble.querySelector(".copilot-msg-content") as HTMLElement;
 
-    this.updateStatus("Schreibe…");
+    this.updateStatus("Typing…");
 
     try {
       let fullText = "";
@@ -208,14 +208,15 @@ export class CopilotChatView extends ItemView {
         { model: this.plugin.settings.model }
       );
 
-      // Letzte Antwort speichern
+      // Store last response
       this.messages.push({ role: "assistant", content: fullText });
-      this.updateStatus("Bereit");
+      this.updateStatus("Ready");
     } catch (err) {
-      contentEl.setText(`Fehler: ${err.message}`);
+      const msg = err instanceof Error ? err.message : String(err);
+      contentEl.setText(`Error: ${msg}`);
       contentEl.addClass("copilot-error");
-      this.updateStatus("Fehler");
-      new Notice(`Copilot Fehler: ${err.message}`);
+      this.updateStatus("Error");
+      new Notice(`Copilot error: ${msg}`);
     } finally {
       this.isStreaming = false;
       this.sendBtn.disabled = false;
@@ -226,19 +227,19 @@ export class CopilotChatView extends ItemView {
 
   private async buildApiMessages(userText: string): Promise<ChatMessage[]> {
     const systemParts: string[] = [
-      "Du bist GitHub Copilot, ein hilfreicher KI-Assistent.",
-      "Du hilfst beim Schreiben, Bearbeiten und Strukturieren von Markdown-Dokumenten in Obsidian.",
-      "Antworte präzise und nutze Markdown-Formatierung wo sinnvoll.",
+      "You are GitHub Copilot, a helpful AI assistant.",
+      "You help with writing, editing, and structuring Markdown documents in Obsidian.",
+      "Answer precisely and use Markdown formatting where appropriate.",
     ];
 
-    // Aktives Dokument als Kontext
+    // Include active document as context
     if (this.plugin.settings.includeActiveDocument) {
       const activeFile = this.app.workspace.getActiveFile();
       if (activeFile instanceof TFile) {
         const content = await this.app.vault.read(activeFile);
         const truncated = this.truncate(content, this.plugin.settings.maxContextChars);
         systemParts.push(
-          `\n## Aktuelles Dokument: "${activeFile.basename}"\n\n${truncated}`
+          `\n## Active document: "${activeFile.basename}"\n\n${truncated}`
         );
       }
     }
@@ -248,7 +249,7 @@ export class CopilotChatView extends ItemView {
       content: systemParts.join("\n"),
     };
 
-    // Letzten N Nachrichten aus Verlauf (ohne system)
+    // Last N messages from history (excluding system)
     const historyLimit = 10;
     const history = this.messages.slice(-historyLimit);
 
@@ -257,12 +258,12 @@ export class CopilotChatView extends ItemView {
     return [systemMessage, ...history, { role: "user", content: userText }];
   }
 
-  // ── Dokument-Aktionen ──────────────────────────────────────────────────
+  // ── Document actions ───────────────────────────────────────────────────
 
   private getLastAssistantText(): string | null {
     for (let i = this.messages.length - 1; i >= 0; i--) {
-      if (this.messages[i].role === "assistant") {
-        return this.messages[i].content;
+      if (this.messages[i]?.role === "assistant") {
+        return this.messages[i]?.content ?? null;
       }
     }
     return null;
@@ -271,44 +272,44 @@ export class CopilotChatView extends ItemView {
   private async appendLastResponseToDocument() {
     const text = this.getLastAssistantText();
     if (!text) {
-      new Notice("Noch keine Copilot-Antwort vorhanden.");
+      new Notice("No Copilot response available yet.");
       return;
     }
     const file = this.app.workspace.getActiveFile();
     if (!file) {
-      new Notice("Kein aktives Dokument geöffnet.");
+      new Notice("No active document open.");
       return;
     }
     const current = await this.app.vault.read(file);
     await this.app.vault.modify(file, current + "\n\n" + text);
-    new Notice(`Antwort an "${file.basename}" angefügt.`);
+    new Notice(`Response appended to "${file.basename}".`);
   }
 
   private async replaceSelectionWithLastResponse() {
     const text = this.getLastAssistantText();
     if (!text) {
-      new Notice("Noch keine Copilot-Antwort vorhanden.");
+      new Notice("No Copilot response available yet.");
       return;
     }
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) {
-      new Notice("Kein aktives Markdown-Dokument.");
+      new Notice("No active Markdown document.");
       return;
     }
     const editor = view.editor;
     const selection = editor.getSelection();
     if (!selection) {
-      new Notice("Kein Text ausgewählt.");
+      new Notice("No text selected.");
       return;
     }
     editor.replaceSelection(text);
-    new Notice("Auswahl ersetzt.");
+    new Notice("Selection replaced.");
   }
 
   async createNoteFromLastResponse() {
     const text = this.getLastAssistantText();
     if (!text) {
-      new Notice("Noch keine Copilot-Antwort vorhanden.");
+      new Notice("No Copilot response available yet.");
       return;
     }
     const timestamp = new Date().toISOString().slice(0, 16).replace("T", " ");
@@ -316,13 +317,13 @@ export class CopilotChatView extends ItemView {
     try {
       const file = await this.app.vault.create(filename, text);
       await this.app.workspace.getLeaf(false).openFile(file);
-      new Notice(`Neue Notiz erstellt: ${filename}`);
+      new Notice(`New note created: ${filename}`);
     } catch (err) {
-      new Notice(`Fehler beim Erstellen der Notiz: ${err.message}`);
+      new Notice(`Error creating note: ${err instanceof Error ? err.message : err}`);
     }
   }
 
-  // ── Rendering Helpers ──────────────────────────────────────────────────
+  // ── Rendering helpers ──────────────────────────────────────────────────
 
   private renderMessage(role: "user" | "assistant", text: string): HTMLElement {
     const wrapper = this.messagesContainer.createDiv({
@@ -336,7 +337,7 @@ export class CopilotChatView extends ItemView {
     bubble.createDiv({ text, cls: "copilot-msg-content" });
 
     if (role === "assistant" && text === "") {
-      // Typing-Indikator
+      // Typing indicator
       const typing = bubble.createDiv({ cls: "copilot-typing" });
       typing.createSpan();
       typing.createSpan();
@@ -351,7 +352,7 @@ export class CopilotChatView extends ItemView {
     this.messages = [];
     this.messagesContainer.empty();
     this.renderWelcome();
-    this.updateStatus("Bereit");
+    this.updateStatus("Ready");
   }
 
   private updateStatus(text: string) {
@@ -369,6 +370,6 @@ export class CopilotChatView extends ItemView {
 
   private truncate(text: string, maxChars: number): string {
     if (text.length <= maxChars) return text;
-    return text.slice(0, maxChars) + "\n\n[… Dokument wurde gekürzt]";
+    return text.slice(0, maxChars) + "\n\n[… document truncated]";
   }
 }

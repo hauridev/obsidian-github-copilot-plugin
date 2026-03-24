@@ -1,5 +1,5 @@
 // src/api/CopilotClient.ts
-// OpenAI-kompatibler Client für die GitHub Copilot Chat API mit Streaming-Support.
+// OpenAI-compatible client for the GitHub Copilot Chat API with streaming support.
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -22,7 +22,7 @@ export class CopilotClient {
   ) {}
 
   /**
-   * Sendet eine Chat-Anfrage und gibt die vollständige Antwort zurück.
+   * Sends a chat request and returns the full response.
    */
   async complete(
     messages: ChatMessage[],
@@ -52,8 +52,8 @@ export class CopilotClient {
   }
 
   /**
-   * Streaming-Variante: ruft onChunk für jedes empfangene Token auf.
-   * Gibt die vollständige Antwort zurück wenn fertig.
+   * Streaming variant: calls onChunk for each received token.
+   * Returns the full response when done.
    */
   async stream(
     messages: ChatMessage[],
@@ -81,7 +81,7 @@ export class CopilotClient {
     }
 
     if (!response.body) {
-      throw new Error("Keine Streaming-Antwort erhalten");
+      throw new Error("No streaming response received");
     }
 
     const reader = response.body.getReader();
@@ -108,12 +108,28 @@ export class CopilotClient {
             onChunk(delta);
           }
         } catch {
-          // Unvollständige JSON-Chunks ignorieren
+          // Ignore incomplete JSON chunks
         }
       }
     }
 
     return fullText;
+  }
+
+  /**
+   * Returns the models available for the current Copilot subscription.
+   */
+  async fetchModels(): Promise<{ id: string; name: string }[]> {
+    const token = await this.getToken();
+    const response = await fetch(`${COPILOT_API_BASE}/models`, {
+      headers: this.buildHeaders(token),
+    });
+
+    if (!response.ok) return [];
+
+    const data = await response.json();
+    const models: { id: string; name?: string }[] = data.data ?? [];
+    return models.map((m) => ({ id: m.id, name: m.name ?? m.id }));
   }
 
   private buildHeaders(token: string): Record<string, string> {
@@ -129,20 +145,20 @@ export class CopilotClient {
   }
 
   private async handleError(response: Response): Promise<never> {
-    let message = `API Fehler: ${response.status}`;
+    let message = `API error: ${response.status}`;
     try {
       const body = await response.json();
       message = body.error?.message ?? message;
     } catch { /* ignore */ }
 
     if (response.status === 401) {
-      throw new Error("Authentifizierung fehlgeschlagen. Bitte neu anmelden.");
+      throw new Error("Authentication failed. Please sign in again.");
     }
     if (response.status === 403) {
-      throw new Error("Kein Copilot-Zugang. Stelle sicher, dass du ein aktives Copilot-Abo hast.");
+      throw new Error("No Copilot access. Make sure you have an active Copilot subscription.");
     }
     if (response.status === 429) {
-      throw new Error("Rate Limit erreicht. Bitte kurz warten.");
+      throw new Error("Rate limit reached. Please wait a moment.");
     }
     throw new Error(message);
   }

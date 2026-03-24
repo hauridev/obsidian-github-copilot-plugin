@@ -1,6 +1,6 @@
 // src/auth/GitHubAuth.ts
-// GitHub Device OAuth Flow — kein Browser-Redirect nötig.
-// Nutzt denselben Flow wie GitHub CLI und VS Code Copilot Extension.
+// GitHub Device OAuth flow — no browser redirect required.
+// Uses the same flow as GitHub CLI and the VS Code Copilot extension.
 
 export interface DeviceCodeResponse {
   device_code: string;
@@ -24,20 +24,39 @@ export interface CopilotToken {
   refresh_in: number;
 }
 
-// Client ID der GitHub Copilot VS Code Extension (öffentlich bekannt)
+// Client ID of the GitHub Copilot VS Code extension (publicly known)
 const GITHUB_CLIENT_ID = "Iv1.b507a08c87ecfe98";
 const GITHUB_SCOPE = "read:user";
 
 export class GitHubAuth {
   private cachedCopilotToken: CopilotToken | null = null;
+  enterpriseDomain: string;
+
+  constructor(enterpriseDomain: string = "") {
+    this.enterpriseDomain = enterpriseDomain;
+  }
+
+  /** Base URL for OAuth flows (login/device/code, login/oauth/access_token) */
+  private get authBase(): string {
+    return this.enterpriseDomain
+      ? `https://${this.enterpriseDomain}`
+      : "https://github.com";
+  }
+
+  /** Base URL for REST API calls */
+  private get apiBase(): string {
+    return this.enterpriseDomain
+      ? `https://api.${this.enterpriseDomain}`
+      : "https://api.github.com";
+  }
 
   /**
-   * Startet den Device OAuth Flow.
-   * Gibt user_code und verification_uri zurück, die dem User angezeigt werden.
+   * Starts the Device OAuth flow.
+   * Returns user_code and verification_uri to display to the user.
    */
   async requestDeviceCode(): Promise<DeviceCodeResponse> {
     const response = await fetch(
-      "https://github.com/login/device/code",
+      `${this.authBase}/login/device/code`,
       {
         method: "POST",
         headers: {
@@ -59,8 +78,8 @@ export class GitHubAuth {
   }
 
   /**
-   * Pollt auf den GitHub Token, bis der User den Code eingegeben hat oder der Flow abläuft.
-   * Gibt den GitHub OAuth Access Token zurück.
+   * Polls for the GitHub token until the user enters the code or the flow expires.
+   * Returns the GitHub OAuth access token.
    */
   async pollForToken(
     deviceCode: string,
@@ -75,7 +94,7 @@ export class GitHubAuth {
       await this.sleep(pollInterval);
 
       const response = await fetch(
-        "https://github.com/login/oauth/access_token",
+        `${this.authBase}/login/oauth/access_token`,
         {
           method: "POST",
           headers: {
@@ -108,25 +127,25 @@ export class GitHubAuth {
       }
 
       if (data.error === "expired_token") {
-        throw new Error("Device code expired. Bitte versuche es erneut.");
+        throw new Error("Device code expired. Please try again.");
       }
 
       if (data.error === "access_denied") {
-        throw new Error("Zugriff verweigert. Bitte autorisiere die App auf GitHub.");
+        throw new Error("Access denied. Please authorize the app on GitHub.");
       }
 
-      throw new Error(data.error_description || data.error || "Unbekannter Fehler");
+      throw new Error(data.error_description || data.error || "Unknown error");
     }
 
-    throw new Error("Timeout: Der Device Code ist abgelaufen.");
+    throw new Error("Timeout: the device code has expired.");
   }
 
   /**
-   * Tauscht den GitHub OAuth Token gegen einen kurzlebigen Copilot API Token.
-   * Copilot Tokens laufen nach ~30 Minuten ab und werden automatisch erneuert.
+   * Exchanges the GitHub OAuth token for a short-lived Copilot API token.
+   * Copilot tokens expire after ~30 minutes and are automatically refreshed.
    */
   async getCopilotToken(githubToken: string): Promise<string> {
-    // Cache prüfen
+    // Check cache
     if (this.cachedCopilotToken) {
       const expiresAt = new Date(this.cachedCopilotToken.expires_at).getTime();
       const refreshIn = this.cachedCopilotToken.refresh_in * 1000;
@@ -136,7 +155,7 @@ export class GitHubAuth {
     }
 
     const response = await fetch(
-      "https://api.github.com/copilot_internal/v2/token",
+      `${this.apiBase}/copilot_internal/v2/token`,
       {
         headers: {
           Authorization: `token ${githubToken}`,
@@ -148,11 +167,11 @@ export class GitHubAuth {
     );
 
     if (response.status === 401) {
-      throw new Error("GitHub Token ungültig oder abgelaufen. Bitte neu anmelden.");
+      throw new Error("GitHub token invalid or expired. Please sign in again.");
     }
 
     if (!response.ok) {
-      throw new Error(`Copilot Token Anfrage fehlgeschlagen: ${response.status}`);
+      throw new Error(`Copilot token request failed: ${response.status}`);
     }
 
     const data: CopilotToken = await response.json();
@@ -161,11 +180,11 @@ export class GitHubAuth {
   }
 
   /**
-   * Prüft ob ein GitHub Token noch gültig ist (hat der User Copilot-Zugang?).
+   * Checks whether a GitHub token is still valid (does the user have Copilot access?).
    */
   async validateGitHubToken(token: string): Promise<{ valid: boolean; login?: string }> {
     try {
-      const response = await fetch("https://api.github.com/user", {
+      const response = await fetch(`${this.apiBase}/user`, {
         headers: {
           Authorization: `token ${token}`,
           "User-Agent": "obsidian-copilot-chat/1.0.0",
