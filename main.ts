@@ -39,6 +39,7 @@ export default class CopilotChatPlugin extends Plugin {
 
     this.client = new CopilotClient(
       () => this.getCopilotToken(),
+      () => this.auth.copilotApiBase,
       this.settings.model
     );
 

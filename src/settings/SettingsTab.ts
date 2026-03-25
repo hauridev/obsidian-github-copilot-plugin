@@ -7,6 +7,7 @@ import type CopilotChatPlugin from "../../main";
 export class CopilotSettingTab extends PluginSettingTab {
   plugin: CopilotChatPlugin;
   private loginContainer: HTMLElement | null = null;
+  private domainDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(app: App, plugin: CopilotChatPlugin) {
     super(app, plugin);
@@ -31,17 +32,26 @@ export class CopilotSettingTab extends PluginSettingTab {
         text
           .setPlaceholder("mycompany.ghe.com")
           .setValue(this.plugin.settings.enterpriseDomain)
-          .onChange(async (value) => {
-            const domain = value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
-            this.plugin.settings.enterpriseDomain = domain;
-            this.plugin.auth.enterpriseDomain = domain;
-            // Clear token from previous provider
-            this.plugin.settings.githubToken = "";
-            this.plugin.settings.githubLogin = "";
-            this.plugin.settings.availableModels = [];
-            this.plugin.auth.clearCache();
-            await this.plugin.saveSettings();
-            this.display();
+          .onChange((value) => {
+            if (this.domainDebounceTimer !== null) {
+              clearTimeout(this.domainDebounceTimer);
+            }
+            this.domainDebounceTimer = setTimeout(async () => {
+              this.domainDebounceTimer = null;
+              const domain = value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
+              const prev = this.plugin.settings.enterpriseDomain;
+              this.plugin.settings.enterpriseDomain = domain;
+              this.plugin.auth.enterpriseDomain = domain;
+              if (domain !== prev) {
+                // Clear token when switching provider
+                this.plugin.settings.githubToken = "";
+                this.plugin.settings.githubLogin = "";
+                this.plugin.settings.availableModels = [];
+                this.plugin.auth.clearCache();
+              }
+              await this.plugin.saveSettings();
+              this.display();
+            }, 600);
           })
       );
 

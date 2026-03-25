@@ -1,5 +1,6 @@
 // src/api/CopilotClient.ts
 // OpenAI-compatible client for the GitHub Copilot Chat API with streaming support.
+import { requestUrl } from "obsidian";
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -13,11 +14,12 @@ export interface CompletionOptions {
   stream?: boolean;
 }
 
-const COPILOT_API_BASE = "https://api.githubcopilot.com";
+const DEFAULT_COPILOT_API_BASE = "https://api.githubcopilot.com";
 
 export class CopilotClient {
   constructor(
     private getToken: () => Promise<string>,
+    private getApiBase: () => string = () => DEFAULT_COPILOT_API_BASE,
     private defaultModel: string = "gpt-4o"
   ) {}
 
@@ -31,7 +33,8 @@ export class CopilotClient {
     const token = await this.getToken();
     const model = options.model ?? this.defaultModel;
 
-    const response = await fetch(`${COPILOT_API_BASE}/chat/completions`, {
+    const response = await requestUrl({
+      url: `${this.getApiBase()}/chat/completions`,
       method: "POST",
       headers: this.buildHeaders(token),
       body: JSON.stringify({
@@ -41,14 +44,14 @@ export class CopilotClient {
         temperature: options.temperature ?? 0.1,
         stream: false,
       }),
+      throw: false,
     });
 
-    if (!response.ok) {
-      await this.handleError(response);
+    if (response.status < 200 || response.status >= 300) {
+      this.handleError(response.status, response.json);
     }
 
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content ?? "";
+    return response.json?.choices?.[0]?.message?.content ?? "";
   }
 
   /**
@@ -63,7 +66,8 @@ export class CopilotClient {
     const token = await this.getToken();
     const model = options.model ?? this.defaultModel;
 
-    const response = await fetch(`${COPILOT_API_BASE}/chat/completions`, {
+    const response = await requestUrl({
+      url: `${this.getApiBase()}/chat/completions`,
       method: "POST",
       headers: this.buildHeaders(token),
       body: JSON.stringify({
@@ -74,42 +78,32 @@ export class CopilotClient {
         stream: true,
         n: 1,
       }),
+      throw: false,
     });
 
-    if (!response.ok) {
-      await this.handleError(response);
+    if (response.status < 200 || response.status >= 300) {
+      let body: unknown;
+      try { body = JSON.parse(response.text); } catch { body = {}; }
+      this.handleError(response.status, body);
     }
 
-    if (!response.body) {
-      throw new Error("No streaming response received");
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
+    const lines = response.text.split("\n");
     let fullText = "";
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const data = line.slice(6).trim();
+      if (data === "[DONE]") continue;
 
-      const chunk = decoder.decode(value, { stream: true });
-      const lines = chunk.split("\n");
-
-      for (const line of lines) {
-        if (!line.startsWith("data: ")) continue;
-        const data = line.slice(6).trim();
-        if (data === "[DONE]") continue;
-
-        try {
-          const parsed = JSON.parse(data);
-          const delta = parsed.choices?.[0]?.delta?.content;
-          if (delta) {
-            fullText += delta;
-            onChunk(delta);
-          }
-        } catch {
-          // Ignore incomplete JSON chunks
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) {
+          fullText += delta;
+          onChunk(delta);
         }
+      } catch {
+        // Ignore malformed SSE lines
       }
     }
 
@@ -121,14 +115,15 @@ export class CopilotClient {
    */
   async fetchModels(): Promise<{ id: string; name: string }[]> {
     const token = await this.getToken();
-    const response = await fetch(`${COPILOT_API_BASE}/models`, {
+    const response = await requestUrl({
+      url: `${this.getApiBase()}/models`,
       headers: this.buildHeaders(token),
+      throw: false,
     });
 
-    if (!response.ok) return [];
+    if (response.status < 200 || response.status >= 300) return [];
 
-    const data = await response.json();
-    const models: { id: string; name?: string }[] = data.data ?? [];
+    const models: { id: string; name?: string }[] = response.json?.data ?? [];
     return models.map((m) => ({ id: m.id, name: m.name ?? m.id }));
   }
 
@@ -144,20 +139,19 @@ export class CopilotClient {
     };
   }
 
-  private async handleError(response: Response): Promise<never> {
-    let message = `API error: ${response.status}`;
-    try {
-      const body = await response.json();
-      message = body.error?.message ?? message;
-    } catch { /* ignore */ }
+  private handleError(status: number, body?: any): never {
+    let message = `API error: ${status}`;
+    if (body?.error?.message) {
+      message = body.error.message;
+    }
 
-    if (response.status === 401) {
+    if (status === 401) {
       throw new Error("Authentication failed. Please sign in again.");
     }
-    if (response.status === 403) {
+    if (status === 403) {
       throw new Error("No Copilot access. Make sure you have an active Copilot subscription.");
     }
-    if (response.status === 429) {
+    if (status === 429) {
       throw new Error("Rate limit reached. Please wait a moment.");
     }
     throw new Error(message);

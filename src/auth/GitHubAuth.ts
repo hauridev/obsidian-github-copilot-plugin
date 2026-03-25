@@ -1,6 +1,7 @@
 // src/auth/GitHubAuth.ts
 // GitHub Device OAuth flow — no browser redirect required.
 // Uses the same flow as GitHub CLI and the VS Code Copilot extension.
+import { requestUrl } from "obsidian";
 
 export interface DeviceCodeResponse {
   device_code: string;
@@ -22,6 +23,9 @@ export interface CopilotToken {
   token: string;
   expires_at: string;
   refresh_in: number;
+  endpoints?: {
+    api?: string;
+  };
 }
 
 // Client ID of the GitHub Copilot VS Code extension (publicly known)
@@ -55,26 +59,25 @@ export class GitHubAuth {
    * Returns user_code and verification_uri to display to the user.
    */
   async requestDeviceCode(): Promise<DeviceCodeResponse> {
-    const response = await fetch(
-      `${this.authBase}/login/device/code`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({
-          client_id: GITHUB_CLIENT_ID,
-          scope: GITHUB_SCOPE,
-        }),
-      }
-    );
+    const response = await requestUrl({
+      url: `${this.authBase}/login/device/code`,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+      body: JSON.stringify({
+        client_id: GITHUB_CLIENT_ID,
+        scope: GITHUB_SCOPE,
+      }),
+      throw: false,
+    });
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(`Device code request failed: ${response.status}`);
     }
 
-    return response.json();
+    return response.json;
   }
 
   /**
@@ -93,23 +96,22 @@ export class GitHubAuth {
     while (Date.now() < deadline) {
       await this.sleep(pollInterval);
 
-      const response = await fetch(
-        `${this.authBase}/login/oauth/access_token`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify({
-            client_id: GITHUB_CLIENT_ID,
-            device_code: deviceCode,
-            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-          }),
-        }
-      );
+      const response = await requestUrl({
+        url: `${this.authBase}/login/oauth/access_token`,
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          client_id: GITHUB_CLIENT_ID,
+          device_code: deviceCode,
+          grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+        }),
+        throw: false,
+      });
 
-      const data: TokenResponse = await response.json();
+      const data: TokenResponse = response.json;
 
       if (data.access_token) {
         return data.access_token;
@@ -154,27 +156,26 @@ export class GitHubAuth {
       }
     }
 
-    const response = await fetch(
-      `${this.apiBase}/copilot_internal/v2/token`,
-      {
-        headers: {
-          Authorization: `token ${githubToken}`,
-          "Editor-Version": "vscode/1.90.0",
-          "Editor-Plugin-Version": "copilot-chat/0.17.0",
-          "User-Agent": "obsidian-copilot-chat/1.0.0",
-        },
-      }
-    );
+    const response = await requestUrl({
+      url: `${this.apiBase}/copilot_internal/v2/token`,
+      headers: {
+        Authorization: `token ${githubToken}`,
+        "Editor-Version": "vscode/1.90.0",
+        "Editor-Plugin-Version": "copilot-chat/0.17.0",
+        "User-Agent": "obsidian-copilot-chat/1.0.0",
+      },
+      throw: false,
+    });
 
     if (response.status === 401) {
       throw new Error("GitHub token invalid or expired. Please sign in again.");
     }
 
-    if (!response.ok) {
+    if (response.status < 200 || response.status >= 300) {
       throw new Error(`Copilot token request failed: ${response.status}`);
     }
 
-    const data: CopilotToken = await response.json();
+    const data: CopilotToken = response.json;
     this.cachedCopilotToken = data;
     return data.token;
   }
@@ -184,20 +185,30 @@ export class GitHubAuth {
    */
   async validateGitHubToken(token: string): Promise<{ valid: boolean; login?: string }> {
     try {
-      const response = await fetch(`${this.apiBase}/user`, {
+      const response = await requestUrl({
+        url: `${this.apiBase}/user`,
         headers: {
           Authorization: `token ${token}`,
           "User-Agent": "obsidian-copilot-chat/1.0.0",
         },
+        throw: false,
       });
 
-      if (!response.ok) return { valid: false };
+      if (response.status < 200 || response.status >= 300) return { valid: false };
 
-      const user = await response.json();
+      const user = response.json;
       return { valid: true, login: user.login };
     } catch {
       return { valid: false };
     }
+  }
+
+  /**
+   * Returns the Copilot API base URL from the cached token's endpoints field,
+   * falling back to the default. Only accurate after getCopilotToken() has been called.
+   */
+  get copilotApiBase(): string {
+    return this.cachedCopilotToken?.endpoints?.api ?? "https://api.githubcopilot.com";
   }
 
   clearCache() {
