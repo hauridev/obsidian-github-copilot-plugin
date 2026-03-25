@@ -97,6 +97,24 @@ export class CopilotSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           })
       );
+
+    // ── Chat ──────────────────────────────────────────────────────────────
+    containerEl.createEl("h3", { text: "Chat" });
+
+    new Setting(containerEl)
+      .setName("Custom system prompt")
+      .setDesc("Override the default system prompt. Leave empty to use the built-in prompt.")
+      .addTextArea((ta) => {
+        ta.setPlaceholder("You are GitHub Copilot…")
+          .setValue(this.plugin.settings.customSystemPrompt)
+          .onChange(async (value) => {
+            this.plugin.settings.customSystemPrompt = value;
+            await this.plugin.saveSettings();
+          });
+        ta.inputEl.style.width = "100%";
+        ta.inputEl.rows = 5;
+        return ta;
+      });
   }
 
   private renderModelSection(containerEl: HTMLElement) {

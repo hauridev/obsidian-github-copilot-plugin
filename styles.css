@@ -169,21 +169,45 @@
   border-radius: 12px 12px 12px 2px;
   padding: 8px 12px;
   color: var(--text-normal);
-  white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
   font-size: var(--font-ui-small);
+  user-select: text;
+  cursor: text;
 }
 
 .copilot-msg-user .copilot-msg-content {
   background: var(--color-accent);
   color: white;
   border-radius: 12px 12px 2px 12px;
+  white-space: pre-wrap;
 }
 
 .copilot-msg-content.copilot-error {
   background: var(--background-modifier-error);
   color: var(--text-error);
+}
+
+/* Markdown content inside assistant bubbles */
+.copilot-msg-content p { margin: 0 0 8px 0; }
+.copilot-msg-content p:last-child { margin-bottom: 0; }
+.copilot-msg-content pre { margin: 8px 0; border-radius: 6px; overflow-x: auto; }
+.copilot-msg-content code { font-size: 0.9em; }
+.copilot-msg-content ul,
+.copilot-msg-content ol { padding-left: 20px; margin: 4px 0 8px; }
+.copilot-msg-content li { margin: 2px 0; }
+.copilot-msg-content h1,
+.copilot-msg-content h2,
+.copilot-msg-content h3 { margin: 10px 0 4px; }
+.copilot-msg-content table { border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 0.9em; }
+.copilot-msg-content th,
+.copilot-msg-content td { border: 1px solid var(--background-modifier-border); padding: 4px 8px; }
+.copilot-msg-content th { background: var(--background-modifier-hover); }
+.copilot-msg-content blockquote {
+  border-left: 3px solid var(--color-accent);
+  margin: 4px 0;
+  padding-left: 10px;
+  color: var(--text-muted);
 }
 
 /* ── Typing Indicator ────────────────────────────────────────────────────── */
@@ -314,10 +338,10 @@
 /* ── Status Bar ──────────────────────────────────────────────────────────── */
 
 .copilot-status {
+  margin-left: auto;
   text-align: right;
   font-size: 10px;
   color: var(--text-faint);
-  padding: 2px 10px 4px;
   flex-shrink: 0;
 }
 
@@ -434,4 +458,50 @@
 .copilot-login-error {
   color: var(--text-error);
   font-size: var(--font-ui-small);
+}
+
+/* ── Conversation Bar ──────────────────────────────────────────────────────── */
+
+.copilot-conv-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--background-secondary-alt);
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+}
+
+.copilot-conv-select {
+  flex: 1;
+  min-width: 0;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 3px 6px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+/* ── Model Selector in footer bar ──────────────────────────────────────────── */
+
+.copilot-footer-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.copilot-model-select {
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  padding: 1px 4px;
+  height: 20px;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  cursor: pointer;
+  max-width: 130px;
+  line-height: 1;
 }

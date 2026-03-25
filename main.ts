@@ -7,6 +7,13 @@ import { CopilotSettingTab } from "./src/settings/SettingsTab";
 import { GitHubAuth } from "./src/auth/GitHubAuth";
 import { CopilotClient } from "./src/api/CopilotClient";
 
+export interface SavedConversation {
+  id: string;
+  name: string;
+  messages: { role: "system" | "user" | "assistant"; content: string }[];
+  createdAt: number;
+}
+
 export interface CopilotPluginSettings {
   githubToken: string;
   githubLogin: string;
@@ -15,6 +22,9 @@ export interface CopilotPluginSettings {
   maxContextChars: number;
   enterpriseDomain: string;
   availableModels: { id: string; name: string }[];
+  customSystemPrompt: string;
+  savedConversations: SavedConversation[];
+  activeConversationId: string;
 }
 
 const DEFAULT_SETTINGS: CopilotPluginSettings = {
@@ -25,6 +35,9 @@ const DEFAULT_SETTINGS: CopilotPluginSettings = {
   maxContextChars: 20000,
   enterpriseDomain: "",
   availableModels: [],
+  customSystemPrompt: "",
+  savedConversations: [],
+  activeConversationId: "",
 };
 
 export default class CopilotChatPlugin extends Plugin {

@@ -4,15 +4,18 @@ Chat with GitHub Copilot directly in Obsidian — with OAuth login, real-time st
 
 ## Features
 
-- **Sidebar Chat** — persistent chat history in the right sidebar
+- **Sidebar Chat** — persistent named conversations with full message history
 - **GitHub OAuth** — secure Device Flow login (no redirect, no API key required)
 - **GitHub Enterprise support** — authenticate against any `*.ghe.com` domain
-- **Responses** — full response rendered at once after the API call completes
+- **Streaming responses** — tokens rendered in real-time as they arrive
+- **Conversation management** — create, switch, and delete named conversations; history is persisted across sessions
 - **Subscription-based model list** — available models are fetched from the Copilot API and reflect your plan
 - **Active Document as Context** — Copilot sees the content of your currently open note
+- **Vault note context** — include any note by typing `[[note name]]` in your message
+- **Custom system prompt** — override the built-in system prompt from settings
 - **Document Actions:**
-  - **Append** the last response to the document
-  - **Replace selection** with Copilot's response
+  - **Append** the last response to the end of the active document
+  - **Replace** the active document's content with Copilot's response
   - **Save** response as a new note
 - **Editor Commands:**
   - `Explain selection`
@@ -65,6 +68,15 @@ Then in Obsidian: **Settings → Community Plugins → Installed Plugins** → e
 
 The GitHub OAuth token is stored securely in Obsidian's plugin data (`data.json`). Copilot API tokens (short-lived, ~30 min) are held in memory and refreshed automatically. Changing the enterprise domain clears the stored token and requires re-authentication.
 
+## Conversations
+
+The plugin saves your chat history across sessions. Each conversation is automatically named after the first message you send.
+
+- Use the **dropdown** in the chat panel to switch between conversations
+- Click **+** to start a new conversation
+- Click the **trash** icon next to the dropdown to delete the current conversation
+- All conversations are persisted in Obsidian's `data.json` and survive plugin reloads
+
 ## Models
 
 After signing in, click **"Load models"** in the Model section of the settings to fetch the models available for your Copilot subscription. The list is cached and updated on each login or manual refresh.
@@ -102,7 +114,7 @@ main.ts                      # Plugin entry — registers sidebar view, commands
 src/
   auth/GitHubAuth.ts         # Device OAuth flow + Copilot token exchange and caching
   api/CopilotClient.ts       # OpenAI-compatible HTTP client using Obsidian's requestUrl
-  views/ChatView.ts          # Obsidian ItemView sidebar — chat UI and message history
+  views/ChatView.ts          # Obsidian ItemView sidebar — chat UI, conversation management, vault wikilinks
   settings/SettingsTab.ts    # Settings UI and login flow
 styles.css                   # CSS with variables for dark/light mode
 ```

@@ -1,8 +1,9 @@
 // src/views/ChatView.ts
-// Main view: sidebar chat panel with streaming, document actions, and vault context.
+// Main view: sidebar chat panel with document actions, vault context, and conversation history.
 
 import {
   ItemView,
+  MarkdownRenderer,
   Notice,
   TFile,
   WorkspaceLeaf,
@@ -10,6 +11,7 @@ import {
 } from "obsidian";
 import { CopilotClient, type ChatMessage } from "../api/CopilotClient";
 import type CopilotChatPlugin from "../../main";
+import type { SavedConversation } from "../../main";
 
 export const VIEW_TYPE_COPILOT_CHAT = "copilot-chat-view";
 
@@ -18,6 +20,7 @@ export class CopilotChatView extends ItemView {
   private client: CopilotClient;
   private messages: ChatMessage[] = [];
   private isStreaming = false;
+  private currentConversationId = "";
 
   // DOM elements
   private messagesContainer: HTMLElement;
@@ -26,6 +29,8 @@ export class CopilotChatView extends ItemView {
   private statusBar: HTMLElement;
   private contextToggle: HTMLInputElement;
   private contextLabel: HTMLElement;
+  private conversationSelect: HTMLSelectElement;
+  private modelSelectEl: HTMLSelectElement;
 
   constructor(leaf: WorkspaceLeaf, plugin: CopilotChatPlugin, client: CopilotClient) {
     super(leaf);
@@ -51,6 +56,7 @@ export class CopilotChatView extends ItemView {
     this.registerEvent(
       this.app.workspace.on("active-leaf-change", () => this.updateContextLabel())
     );
+    await this.initConversation();
   }
 
   async onClose() {}
@@ -72,7 +78,7 @@ export class CopilotChatView extends ItemView {
     const headerActions = header.createDiv({ cls: "copilot-header-actions" });
 
     // Clear button
-    const clearBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Clear history" });
+    const clearBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Clear conversation" });
     setIcon(clearBtn, "trash-2");
     clearBtn.addEventListener("click", () => this.clearChat());
 
@@ -80,6 +86,19 @@ export class CopilotChatView extends ItemView {
     const newDocBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Save response as new note" });
     setIcon(newDocBtn, "file-plus");
     newDocBtn.addEventListener("click", () => this.createNoteFromLastResponse());
+
+    // ── Conversation bar ──
+    const convBar = contentEl.createDiv({ cls: "copilot-conv-bar" });
+    this.conversationSelect = convBar.createEl("select", { cls: "copilot-conv-select" });
+    this.conversationSelect.addEventListener("change", () => {
+      this.switchConversation(this.conversationSelect.value);
+    });
+    const newConvBtn = convBar.createEl("button", { cls: "copilot-btn-icon", title: "New conversation" });
+    setIcon(newConvBtn, "plus");
+    newConvBtn.addEventListener("click", () => this.createNewConversation());
+    const delConvBtn = convBar.createEl("button", { cls: "copilot-btn-icon", title: "Delete conversation" });
+    setIcon(delConvBtn, "trash-2");
+    delConvBtn.addEventListener("click", () => this.deleteCurrentConversation());
 
     // ── Context toggle ──
     const contextBar = contentEl.createDiv({ cls: "copilot-context-bar" });
@@ -144,8 +163,15 @@ export class CopilotChatView extends ItemView {
     setIcon(this.sendBtn, "send");
     this.sendBtn.addEventListener("click", () => this.sendMessage());
 
-    // Status bar
-    this.statusBar = contentEl.createDiv({ cls: "copilot-status" });
+    // Footer: model selector + status
+    const footerBar = inputArea.createDiv({ cls: "copilot-footer-bar" });
+    this.modelSelectEl = footerBar.createEl("select", { cls: "copilot-model-select" });
+    this.refreshModelSelect();
+    this.modelSelectEl.addEventListener("change", async () => {
+      this.plugin.settings.model = this.modelSelectEl.value;
+      await this.plugin.saveSettings();
+    });
+    this.statusBar = footerBar.createDiv({ cls: "copilot-status" });
   }
 
   private updateContextLabel() {
@@ -165,7 +191,7 @@ export class CopilotChatView extends ItemView {
       cls: "copilot-welcome-text",
     });
     welcome.createEl("p", {
-      text: "Enable the context toggle above to include your active document as context.",
+      text: "Use [[note name]] to include vault notes as context.",
       cls: "copilot-welcome-hint",
     });
   }
@@ -192,11 +218,11 @@ export class CopilotChatView extends ItemView {
     // Build context
     const apiMessages = await this.buildApiMessages(text);
 
-    // Prepare assistant bubble
-    const assistantBubble = this.renderMessage("assistant", "");
+    // Prepare assistant bubble with typing indicator
+    const assistantBubble = this.renderMessage("assistant", "", true);
     const contentEl = assistantBubble.querySelector(".copilot-msg-content") as HTMLElement;
 
-    this.updateStatus("Typing…");
+    this.updateStatus("Thinking…");
 
     try {
       let fullText = "";
@@ -204,14 +230,20 @@ export class CopilotChatView extends ItemView {
         apiMessages,
         (chunk) => {
           fullText += chunk;
-          contentEl.setText(fullText);
           this.scrollToBottom();
         },
         { model: this.plugin.settings.model }
       );
 
-      // Store last response
+      // Render the full response as markdown
+      assistantBubble.querySelector(".copilot-typing")?.remove();
+      contentEl.empty();
+      const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
+      await MarkdownRenderer.render(this.app, fullText, contentEl, sourcePath, this);
+
+      // Store and persist
       this.messages.push({ role: "assistant", content: fullText });
+      await this.saveCurrentConversation();
       this.updateStatus("Ready");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -229,12 +261,15 @@ export class CopilotChatView extends ItemView {
   }
 
   private async buildApiMessages(userText: string): Promise<ChatMessage[]> {
-    const systemParts: string[] = [
+    const defaultPrompt = [
       "You are GitHub Copilot, a helpful AI assistant.",
       "You help with writing, editing, and structuring Markdown documents in Obsidian.",
       "Answer precisely and use Markdown formatting where appropriate.",
       "When you provide a full document or a complete replacement for the active document, wrap the ENTIRE document content in a SINGLE ```markdown code fence. Do not split the document across multiple code fences.",
-    ];
+    ].join("\n");
+
+    const systemContent = this.plugin.settings.customSystemPrompt?.trim() || defaultPrompt;
+    const systemParts: string[] = [systemContent];
 
     // Include active document as context
     if (this.plugin.settings.includeActiveDocument) {
@@ -248,6 +283,10 @@ export class CopilotChatView extends ItemView {
       }
     }
 
+    // Inject [[wikilink]] note content
+    const wikilinkContexts = await this.resolveWikilinks(userText);
+    systemParts.push(...wikilinkContexts);
+
     const systemMessage: ChatMessage = {
       role: "system",
       content: systemParts.join("\n"),
@@ -260,6 +299,25 @@ export class CopilotChatView extends ItemView {
     this.messages.push({ role: "user", content: userText });
 
     return [systemMessage, ...history, { role: "user", content: userText }];
+  }
+
+  private async resolveWikilinks(text: string): Promise<string[]> {
+    const matches = [...text.matchAll(/\[\[([^\]]+)\]\]/g)];
+    const contexts: string[] = [];
+    const seen = new Set<string>();
+    for (const match of matches) {
+      const noteName = ((match[1] ?? "").split("|")[0] ?? "").trim();
+      if (!noteName || seen.has(noteName)) continue;
+      seen.add(noteName);
+      const file = this.app.metadataCache.getFirstLinkpathDest(noteName, "");
+      if (file instanceof TFile) {
+        const content = await this.app.vault.read(file);
+        contexts.push(
+          `\n## Linked note: "${file.basename}"\n\n${this.truncate(content, this.plugin.settings.maxContextChars)}`
+        );
+      }
+    }
+    return contexts;
   }
 
   // ── Document actions ───────────────────────────────────────────────────
@@ -326,7 +384,7 @@ export class CopilotChatView extends ItemView {
 
   // ── Rendering helpers ──────────────────────────────────────────────────
 
-  private renderMessage(role: "user" | "assistant", text: string): HTMLElement {
+  private renderMessage(role: "user" | "assistant", text: string, typing = false): HTMLElement {
     const wrapper = this.messagesContainer.createDiv({
       cls: `copilot-msg copilot-msg-${role}`,
     });
@@ -335,14 +393,14 @@ export class CopilotChatView extends ItemView {
     setIcon(avatar, role === "user" ? "user" : "bot");
 
     const bubble = wrapper.createDiv({ cls: "copilot-msg-bubble" });
-    bubble.createDiv({ text, cls: "copilot-msg-content" });
+    const contentDiv = bubble.createDiv({ cls: "copilot-msg-content" });
+    if (text) contentDiv.setText(text);
 
-    if (role === "assistant" && text === "") {
-      // Typing indicator
-      const typing = bubble.createDiv({ cls: "copilot-typing" });
-      typing.createSpan();
-      typing.createSpan();
-      typing.createSpan();
+    if (typing) {
+      const typingEl = bubble.createDiv({ cls: "copilot-typing" });
+      typingEl.createSpan();
+      typingEl.createSpan();
+      typingEl.createSpan();
     }
 
     this.scrollToBottom();
@@ -353,7 +411,146 @@ export class CopilotChatView extends ItemView {
     this.messages = [];
     this.messagesContainer.empty();
     this.renderWelcome();
+    const conv = this.plugin.settings.savedConversations.find(c => c.id === this.currentConversationId);
+    if (conv) { conv.messages = []; this.plugin.saveSettings(); }
     this.updateStatus("Ready");
+  }
+
+  // ── Conversation management ───────────────────────────────────────────
+
+  private async initConversation() {
+    const conv = this.plugin.settings.savedConversations.find(
+      c => c.id === this.plugin.settings.activeConversationId
+    );
+    if (conv) {
+      this.currentConversationId = conv.id;
+      this.messages = [...conv.messages];
+      this.refreshConversationSelect();
+      if (this.messages.length > 0) {
+        await this.renderLoadedMessages();
+      } else {
+        this.messagesContainer.empty();
+        this.renderWelcome();
+      }
+    } else {
+      this.createNewConversation();
+    }
+  }
+
+  private createNewConversation() {
+    const id = crypto.randomUUID();
+    const timestamp = new Date().toLocaleString(undefined, {
+      month: "short", day: "numeric", hour: "2-digit", minute: "2-digit",
+    });
+    const conv: SavedConversation = {
+      id,
+      name: timestamp,
+      messages: [],
+      createdAt: Date.now(),
+    };
+    this.plugin.settings.savedConversations.push(conv);
+    this.plugin.settings.activeConversationId = id;
+    this.plugin.saveSettings();
+    this.currentConversationId = id;
+    this.messages = [];
+    this.messagesContainer.empty();
+    this.renderWelcome();
+    this.refreshConversationSelect();
+  }
+
+  private async switchConversation(id: string) {
+    if (id === this.currentConversationId) return;
+    const conv = this.plugin.settings.savedConversations.find(c => c.id === id);
+    if (!conv) return;
+    this.plugin.settings.activeConversationId = id;
+    await this.plugin.saveSettings();
+    this.currentConversationId = id;
+    this.messages = [...conv.messages];
+    this.messagesContainer.empty();
+    if (this.messages.length > 0) {
+      await this.renderLoadedMessages();
+    } else {
+      this.renderWelcome();
+    }
+  }
+
+  private async saveCurrentConversation() {
+    const conv = this.plugin.settings.savedConversations.find(c => c.id === this.currentConversationId);
+    if (!conv) return;
+    // Auto-name from first user message if the name still looks like a timestamp (no custom name set)
+    const firstUser = this.messages.find(m => m.role === "user");
+    if (firstUser && conv.messages.length === 0) {
+      // Only rename on the very first save (messages was empty before this response)
+      conv.name = firstUser.content.slice(0, 45).replace(/\n/g, " ")
+        + (firstUser.content.length > 45 ? "…" : "");
+    }
+    conv.messages = [...this.messages];
+    await this.plugin.saveSettings();
+    this.refreshConversationSelect();
+  }
+
+  private async deleteCurrentConversation() {
+    const idx = this.plugin.settings.savedConversations.findIndex(c => c.id === this.currentConversationId);
+    if (idx !== -1) this.plugin.settings.savedConversations.splice(idx, 1);
+
+    // Switch to an adjacent conversation if one exists, otherwise create a fresh one
+    const remaining = this.plugin.settings.savedConversations;
+    if (remaining.length > 0) {
+      const next = remaining[Math.min(idx, remaining.length - 1)];
+      if (next) {
+        await this.switchConversation(next.id);
+        return;
+      }
+    }
+    this.createNewConversation();
+  }
+
+  private refreshConversationSelect() {
+    if (!this.conversationSelect) return;
+    this.conversationSelect.innerHTML = "";
+    for (const conv of this.plugin.settings.savedConversations) {
+      const opt = document.createElement("option");
+      opt.value = conv.id;
+      opt.text = conv.name;
+      opt.selected = conv.id === this.currentConversationId;
+      this.conversationSelect.appendChild(opt);
+    }
+  }
+
+  private refreshModelSelect() {
+    if (!this.modelSelectEl) return;
+    const fallback = [
+      { id: "gpt-4o", name: "GPT-4o" },
+      { id: "gpt-4o-mini", name: "GPT-4o Mini" },
+      { id: "gpt-4", name: "GPT-4" },
+      { id: "claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
+    ];
+    const models = this.plugin.settings.availableModels.length > 0
+      ? this.plugin.settings.availableModels : fallback;
+    this.modelSelectEl.innerHTML = "";
+    for (const m of models) {
+      const opt = document.createElement("option");
+      opt.value = m.id;
+      opt.text = m.name;
+      opt.selected = m.id === this.plugin.settings.model;
+      this.modelSelectEl.appendChild(opt);
+    }
+  }
+
+  private async renderLoadedMessages() {
+    this.messagesContainer.empty();
+    const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
+    for (const msg of this.messages) {
+      if (msg.role === "system") continue;
+      const wrapper = this.renderMessage(msg.role, "");
+      const contentEl = wrapper.querySelector(".copilot-msg-content") as HTMLElement;
+      if (msg.role === "assistant") {
+        await MarkdownRenderer.render(this.app, msg.content, contentEl, sourcePath, this);
+      } else {
+        contentEl.setText(msg.content);
+      }
+    }
+    this.scrollToBottom();
   }
 
   private updateStatus(text: string) {
