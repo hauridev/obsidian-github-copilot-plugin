@@ -3,7 +3,6 @@
 
 import {
   ItemView,
-  MarkdownView,
   Notice,
   TFile,
   WorkspaceLeaf,
@@ -49,6 +48,9 @@ export class CopilotChatView extends ItemView {
   async onOpen() {
     this.buildUI();
     this.updateStatus("Ready");
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => this.updateContextLabel())
+    );
   }
 
   async onClose() {}
@@ -117,11 +119,11 @@ export class CopilotChatView extends ItemView {
 
     const replaceBtn = actionBar.createEl("button", {
       cls: "copilot-action-btn",
-      title: "Replace selection with last response",
+      title: "Replace document content with last response",
     });
     setIcon(replaceBtn.createSpan(), "replace");
     replaceBtn.createSpan({ text: " Replace" });
-    replaceBtn.addEventListener("click", () => this.replaceSelectionWithLastResponse());
+    replaceBtn.addEventListener("click", () => this.replaceDocumentWithLastResponse());
 
     // Textarea + Send
     const inputRow = inputArea.createDiv({ cls: "copilot-input-row" });
@@ -218,6 +220,7 @@ export class CopilotChatView extends ItemView {
       this.updateStatus("Error");
       new Notice(`Copilot error: ${msg}`);
     } finally {
+      assistantBubble.querySelector(".copilot-typing")?.remove();
       this.isStreaming = false;
       this.sendBtn.disabled = false;
       this.sendBtn.classList.remove("loading");
@@ -230,6 +233,7 @@ export class CopilotChatView extends ItemView {
       "You are GitHub Copilot, a helpful AI assistant.",
       "You help with writing, editing, and structuring Markdown documents in Obsidian.",
       "Answer precisely and use Markdown formatting where appropriate.",
+      "When you provide a full document or a complete replacement for the active document, wrap the ENTIRE document content in a SINGLE ```markdown code fence. Do not split the document across multiple code fences.",
     ];
 
     // Include active document as context
@@ -285,25 +289,22 @@ export class CopilotChatView extends ItemView {
     new Notice(`Response appended to "${file.basename}".`);
   }
 
-  private async replaceSelectionWithLastResponse() {
+  private async replaceDocumentWithLastResponse() {
     const text = this.getLastAssistantText();
     if (!text) {
       new Notice("No Copilot response available yet.");
       return;
     }
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    if (!view) {
-      new Notice("No active Markdown document.");
+    const file = this.app.workspace.getActiveFile();
+    if (!file) {
+      new Notice("No active document open.");
       return;
     }
-    const editor = view.editor;
-    const selection = editor.getSelection();
-    if (!selection) {
-      new Notice("No text selected.");
-      return;
-    }
-    editor.replaceSelection(text);
-    new Notice("Selection replaced.");
+    // Extract content from the outer ```markdown fence (greedy — handles inner code fences)
+    const fenceMatch = text.match(/```markdown\n([\s\S]*)```/);
+    const content = fenceMatch?.[1] ?? text;
+    await this.app.vault.modify(file, content);
+    new Notice(`Document "${file.basename}" replaced with Copilot response.`);
   }
 
   async createNoteFromLastResponse() {

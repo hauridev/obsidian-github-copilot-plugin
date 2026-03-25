@@ -7,7 +7,7 @@ Chat with GitHub Copilot directly in Obsidian — with OAuth login, real-time st
 - **Sidebar Chat** — persistent chat history in the right sidebar
 - **GitHub OAuth** — secure Device Flow login (no redirect, no API key required)
 - **GitHub Enterprise support** — authenticate against any `*.ghe.com` domain
-- **Streaming** — responses appear token by token in real time
+- **Responses** — full response rendered at once after the API call completes
 - **Subscription-based model list** — available models are fetched from the Copilot API and reflect your plan
 - **Active Document as Context** — Copilot sees the content of your currently open note
 - **Document Actions:**
@@ -88,7 +88,8 @@ This plugin uses the same Device Flow as GitHub CLI and the VS Code Copilot exte
 2. User visits `{host}/login/device` and enters the displayed code
 3. Plugin polls `{host}/login/oauth/access_token` until authorized
 4. The GitHub token is exchanged for a short-lived Copilot API token via `api.{host}/copilot_internal/v2/token`
-5. The Copilot token is used for chat requests to `api.githubcopilot.com/chat/completions`
+5. The Copilot token's `endpoints.api` field determines the API base URL (e.g. `https://api.githubcopilot.com`) — this ensures enterprise tenants are routed to the correct endpoint
+6. All API requests use Obsidian's built-in `requestUrl` instead of `fetch`, which is required for the plugin to work on desktop
 
 `{host}` is `github.com` by default, or your configured enterprise domain (e.g. `mycompany.ghe.com`).
 
@@ -100,7 +101,7 @@ The Client ID `Iv1.b507a08c87ecfe98` is the public VS Code Copilot extension OAu
 main.ts                      # Plugin entry — registers sidebar view, commands, settings tab
 src/
   auth/GitHubAuth.ts         # Device OAuth flow + Copilot token exchange and caching
-  api/CopilotClient.ts       # OpenAI-compatible HTTP client with SSE streaming
+  api/CopilotClient.ts       # OpenAI-compatible HTTP client using Obsidian's requestUrl
   views/ChatView.ts          # Obsidian ItemView sidebar — chat UI and message history
   settings/SettingsTab.ts    # Settings UI and login flow
 styles.css                   # CSS with variables for dark/light mode
