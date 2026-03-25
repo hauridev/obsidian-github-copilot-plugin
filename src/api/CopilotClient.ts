@@ -14,6 +14,22 @@ export interface CompletionOptions {
   stream?: boolean;
 }
 
+interface ChatCompletionResponse {
+  choices: { message: { content: string } }[];
+}
+
+interface StreamChunk {
+  choices: { delta: { content?: string } }[];
+}
+
+interface ModelListResponse {
+  data: { id: string; name?: string }[];
+}
+
+interface ApiErrorBody {
+  error?: { message?: string };
+}
+
 const DEFAULT_COPILOT_API_BASE = "https://api.githubcopilot.com";
 
 export class CopilotClient {
@@ -48,10 +64,11 @@ export class CopilotClient {
     });
 
     if (response.status < 200 || response.status >= 300) {
-      this.handleError(response.status, response.json);
+      this.handleError(response.status, response.json as ApiErrorBody);
     }
 
-    return response.json?.choices?.[0]?.message?.content ?? "";
+    const json = response.json as ChatCompletionResponse;
+    return json.choices?.[0]?.message?.content ?? "";
   }
 
   /**
@@ -82,8 +99,8 @@ export class CopilotClient {
     });
 
     if (response.status < 200 || response.status >= 300) {
-      let body: unknown;
-      try { body = JSON.parse(response.text); } catch { body = {}; }
+      let body: ApiErrorBody;
+      try { body = JSON.parse(response.text) as ApiErrorBody; } catch { body = {}; }
       this.handleError(response.status, body);
     }
 
@@ -96,7 +113,7 @@ export class CopilotClient {
       if (data === "[DONE]") continue;
 
       try {
-        const parsed = JSON.parse(data);
+        const parsed = JSON.parse(data) as StreamChunk;
         const delta = parsed.choices?.[0]?.delta?.content;
         if (delta) {
           fullText += delta;
@@ -123,7 +140,8 @@ export class CopilotClient {
 
     if (response.status < 200 || response.status >= 300) return [];
 
-    const models: { id: string; name?: string }[] = response.json?.data ?? [];
+    const json = response.json as ModelListResponse;
+    const models = json?.data ?? [];
     return models.map((m) => ({ id: m.id, name: m.name ?? m.id }));
   }
 
@@ -139,10 +157,11 @@ export class CopilotClient {
     };
   }
 
-  private handleError(status: number, body?: any): never {
+  private handleError(status: number, body?: ApiErrorBody): never {
     let message = `API error: ${status}`;
-    if (body?.error?.message) {
-      message = body.error.message;
+    const errMsg = body?.error?.message;
+    if (errMsg) {
+      message = errMsg;
     }
 
     if (status === 401) {

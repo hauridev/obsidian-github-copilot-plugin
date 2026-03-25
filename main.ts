@@ -66,14 +66,14 @@ export default class CopilotChatPlugin extends Plugin {
 
     // Ribbon icon
     this.addRibbonIcon("bot", "Open Copilot Chat", () => {
-      this.activateChatView();
+      void this.activateChatView();
     });
 
     // Commands
     this.addCommand({
       id: "open-copilot-chat",
       name: "Open Copilot Chat",
-      callback: () => this.activateChatView(),
+      callback: () => void this.activateChatView(),
     });
 
     this.addCommand({
@@ -85,7 +85,7 @@ export default class CopilotChatPlugin extends Plugin {
           new Notice("Please select some text first.");
           return;
         }
-        this.activateChatView().then(() => {
+        void this.activateChatView().then(() => {
           // Short delay to ensure the view is loaded
           setTimeout(() => {
             const view = this.getChatView();
@@ -107,7 +107,7 @@ export default class CopilotChatPlugin extends Plugin {
           new Notice("Please select some text first.");
           return;
         }
-        this.activateChatView().then(() => {
+        void this.activateChatView().then(() => {
           setTimeout(() => {
             const view = this.getChatView();
             if (view) {
@@ -139,15 +139,13 @@ export default class CopilotChatPlugin extends Plugin {
       },
     });
 
-    console.log("GitHub Copilot Chat plugin loaded.");
+    console.debug("GitHub Copilot Chat plugin loaded.");
   }
 
-  onunload() {
-    this.app.workspace.detachLeavesOfType(VIEW_TYPE_COPILOT_CHAT);
-  }
+  onunload() {}
 
   async loadSettings() {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<CopilotPluginSettings>);
   }
 
   async saveSettings() {
@@ -182,7 +180,7 @@ export default class CopilotChatPlugin extends Plugin {
       await leaf.setViewState({ type: VIEW_TYPE_COPILOT_CHAT, active: true });
     }
 
-    if (leaf) workspace.revealLeaf(leaf);
+    if (leaf) await workspace.revealLeaf(leaf);
   }
 
   private getChatView(): CopilotChatView | null {

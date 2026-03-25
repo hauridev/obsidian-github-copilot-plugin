@@ -18,10 +18,8 @@ export class CopilotSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
 
-    containerEl.createEl("h2", { text: "GitHub Copilot Chat" });
-
     // ── Enterprise ─────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "GitHub Enterprise" });
+    new Setting(containerEl).setName("GitHub Enterprise").setHeading();
 
     new Setting(containerEl)
       .setName("Enterprise domain")
@@ -36,7 +34,7 @@ export class CopilotSettingTab extends PluginSettingTab {
             if (this.domainDebounceTimer !== null) {
               clearTimeout(this.domainDebounceTimer);
             }
-            this.domainDebounceTimer = setTimeout(async () => {
+            this.domainDebounceTimer = setTimeout(() => void (async () => {
               this.domainDebounceTimer = null;
               const domain = value.trim().replace(/^https?:\/\//, "").replace(/\/$/, "");
               const prev = this.plugin.settings.enterpriseDomain;
@@ -51,12 +49,12 @@ export class CopilotSettingTab extends PluginSettingTab {
               }
               await this.plugin.saveSettings();
               this.display();
-            }, 600);
+            })(), 600);
           })
       );
 
     // ── Authentication ────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Authentication" });
+    new Setting(containerEl).setName("Authentication").setHeading();
 
     if (this.plugin.settings.githubToken) {
       this.renderLoggedIn(containerEl);
@@ -65,12 +63,12 @@ export class CopilotSettingTab extends PluginSettingTab {
     }
 
     // ── Model ──────────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Model" });
+    new Setting(containerEl).setName("Model").setHeading();
 
     this.renderModelSection(containerEl);
 
     // ── Context ────────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Context" });
+    new Setting(containerEl).setName("Context").setHeading();
 
     new Setting(containerEl)
       .setName("Include active document")
@@ -99,7 +97,7 @@ export class CopilotSettingTab extends PluginSettingTab {
       );
 
     // ── Chat ──────────────────────────────────────────────────────────────
-    containerEl.createEl("h3", { text: "Chat" });
+    new Setting(containerEl).setName("Chat").setHeading();
 
     new Setting(containerEl)
       .setName("Custom system prompt")
@@ -111,7 +109,7 @@ export class CopilotSettingTab extends PluginSettingTab {
             this.plugin.settings.customSystemPrompt = value;
             await this.plugin.saveSettings();
           });
-        ta.inputEl.style.width = "100%";
+        ta.inputEl.addClass("copilot-textarea-full");
         ta.inputEl.rows = 5;
         return ta;
       });
@@ -164,7 +162,7 @@ export class CopilotSettingTab extends PluginSettingTab {
               await this.plugin.fetchAndSaveModels();
               new Notice("Models loaded successfully.");
             } catch (e) {
-              new Notice(`Error loading models: ${e instanceof Error ? e.message : e}`);
+              new Notice(`Error loading models: ${e instanceof Error ? e.message : String(e)}`);
             }
             this.display();
           })
@@ -245,7 +243,7 @@ export class CopilotSettingTab extends PluginSettingTab {
       const copyUrlBtn = urlRow.createEl("button", { cls: "copilot-btn-icon", title: "Copy" });
       setIcon(copyUrlBtn, "copy");
       copyUrlBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(deviceCode.verification_uri);
+        void navigator.clipboard.writeText(deviceCode.verification_uri);
         new Notice("URL copied!");
       });
 
@@ -262,7 +260,7 @@ export class CopilotSettingTab extends PluginSettingTab {
       const copyCodeBtn = codeRow.createEl("button", { cls: "copilot-btn-icon", title: "Copy" });
       setIcon(copyCodeBtn, "copy");
       copyCodeBtn.addEventListener("click", () => {
-        navigator.clipboard.writeText(deviceCode.user_code);
+        void navigator.clipboard.writeText(deviceCode.user_code);
         new Notice("Code copied!");
       });
 
@@ -272,7 +270,7 @@ export class CopilotSettingTab extends PluginSettingTab {
       });
 
       // Poll in the background
-      this.plugin.auth
+      void this.plugin.auth
         .pollForToken(
           deviceCode.device_code,
           deviceCode.interval,
@@ -304,7 +302,7 @@ export class CopilotSettingTab extends PluginSettingTab {
     } catch (err) {
       this.loginContainer.empty();
       this.loginContainer.createEl("p", {
-        text: `Error: ${err instanceof Error ? err.message : err}`,
+        text: `Error: ${err instanceof Error ? err.message : String(err)}`,
         cls: "copilot-login-error",
       });
     }

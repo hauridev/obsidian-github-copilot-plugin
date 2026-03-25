@@ -77,7 +77,7 @@ export class GitHubAuth {
       throw new Error(`Device code request failed: ${response.status}`);
     }
 
-    return response.json;
+    return response.json as DeviceCodeResponse;
   }
 
   /**
@@ -111,7 +111,7 @@ export class GitHubAuth {
         throw: false,
       });
 
-      const data: TokenResponse = response.json;
+      const data: TokenResponse = response.json as TokenResponse;
 
       if (data.access_token) {
         return data.access_token;
@@ -175,7 +175,7 @@ export class GitHubAuth {
       throw new Error(`Copilot token request failed: ${response.status}`);
     }
 
-    const data: CopilotToken = response.json;
+    const data: CopilotToken = response.json as CopilotToken;
     this.cachedCopilotToken = data;
     return data.token;
   }
@@ -196,7 +196,7 @@ export class GitHubAuth {
 
       if (response.status < 200 || response.status >= 300) return { valid: false };
 
-      const user = response.json;
+      const user = response.json as { login?: string };
       return { valid: true, login: user.login };
     } catch {
       return { valid: false };

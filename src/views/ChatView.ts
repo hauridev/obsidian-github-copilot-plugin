@@ -31,6 +31,8 @@ export class CopilotChatView extends ItemView {
   private contextLabel: HTMLElement;
   private conversationSelect: HTMLSelectElement;
   private modelSelectEl: HTMLSelectElement;
+  private wikilinkDropdown: HTMLElement;
+  private wikilinkActiveIndex = -1;
 
   constructor(leaf: WorkspaceLeaf, plugin: CopilotChatPlugin, client: CopilotClient) {
     super(leaf);
@@ -85,20 +87,20 @@ export class CopilotChatView extends ItemView {
     // Create new note from response
     const newDocBtn = headerActions.createEl("button", { cls: "copilot-btn-icon", title: "Save response as new note" });
     setIcon(newDocBtn, "file-plus");
-    newDocBtn.addEventListener("click", () => this.createNoteFromLastResponse());
+    newDocBtn.addEventListener("click", () => { void this.createNoteFromLastResponse(); });
 
     // ── Conversation bar ──
     const convBar = contentEl.createDiv({ cls: "copilot-conv-bar" });
     this.conversationSelect = convBar.createEl("select", { cls: "copilot-conv-select" });
     this.conversationSelect.addEventListener("change", () => {
-      this.switchConversation(this.conversationSelect.value);
+      void this.switchConversation(this.conversationSelect.value);
     });
     const newConvBtn = convBar.createEl("button", { cls: "copilot-btn-icon", title: "New conversation" });
     setIcon(newConvBtn, "plus");
     newConvBtn.addEventListener("click", () => this.createNewConversation());
     const delConvBtn = convBar.createEl("button", { cls: "copilot-btn-icon", title: "Delete conversation" });
     setIcon(delConvBtn, "trash-2");
-    delConvBtn.addEventListener("click", () => this.deleteCurrentConversation());
+    delConvBtn.addEventListener("click", () => { void this.deleteCurrentConversation(); });
 
     // ── Context toggle ──
     const contextBar = contentEl.createDiv({ cls: "copilot-context-bar" });
@@ -107,7 +109,7 @@ export class CopilotChatView extends ItemView {
     this.contextToggle.checked = this.plugin.settings.includeActiveDocument;
     this.contextToggle.addEventListener("change", () => {
       this.plugin.settings.includeActiveDocument = this.contextToggle.checked;
-      this.plugin.saveSettings();
+      void this.plugin.saveSettings();
       this.updateContextLabel();
     });
 
@@ -134,7 +136,7 @@ export class CopilotChatView extends ItemView {
     });
     setIcon(insertBtn.createSpan(), "arrow-down-to-line");
     insertBtn.createSpan({ text: " Append" });
-    insertBtn.addEventListener("click", () => this.appendLastResponseToDocument());
+    insertBtn.addEventListener("click", () => { void this.appendLastResponseToDocument(); });
 
     const replaceBtn = actionBar.createEl("button", {
       cls: "copilot-action-btn",
@@ -142,34 +144,65 @@ export class CopilotChatView extends ItemView {
     });
     setIcon(replaceBtn.createSpan(), "replace");
     replaceBtn.createSpan({ text: " Replace" });
-    replaceBtn.addEventListener("click", () => this.replaceDocumentWithLastResponse());
+    replaceBtn.addEventListener("click", () => { void this.replaceDocumentWithLastResponse(); });
 
     // Textarea + Send
     const inputRow = inputArea.createDiv({ cls: "copilot-input-row" });
-    this.inputEl = inputRow.createEl("textarea", {
+    const inputWrapper = inputRow.createDiv({ cls: "copilot-input-wrapper" });
+    this.inputEl = inputWrapper.createEl("textarea", {
       cls: "copilot-input",
       placeholder: "Type a message… (Shift+Enter for new line)",
     });
+    this.wikilinkDropdown = inputWrapper.createDiv({ cls: "copilot-wikilink-dropdown" });
     this.inputEl.rows = 3;
     this.inputEl.addEventListener("keydown", (e) => {
+      if (this.wikilinkDropdown.hasClass("is-visible")) {
+        const items = Array.from(this.wikilinkDropdown.querySelectorAll<HTMLElement>(".copilot-wikilink-item"));
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          this.wikilinkActiveIndex = Math.min(this.wikilinkActiveIndex + 1, items.length - 1);
+          this.highlightWikilinkItem(items);
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          this.wikilinkActiveIndex = Math.max(this.wikilinkActiveIndex - 1, 0);
+          this.highlightWikilinkItem(items);
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          const active = items[this.wikilinkActiveIndex];
+          if (active) this.insertWikilink(active.dataset.name ?? "");
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          this.hideWikilinkDropdown();
+          return;
+        }
+      }
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        this.sendMessage();
+        void this.sendMessage();
       }
     });
-    this.inputEl.addEventListener("input", () => this.autoResize());
+    this.inputEl.addEventListener("input", () => {
+      this.autoResize();
+      this.checkWikilinkTrigger();
+    });
 
     this.sendBtn = inputRow.createEl("button", { cls: "copilot-send-btn" });
     setIcon(this.sendBtn, "send");
-    this.sendBtn.addEventListener("click", () => this.sendMessage());
+    this.sendBtn.addEventListener("click", () => { void this.sendMessage(); });
 
     // Footer: model selector + status
     const footerBar = inputArea.createDiv({ cls: "copilot-footer-bar" });
     this.modelSelectEl = footerBar.createEl("select", { cls: "copilot-model-select" });
     this.refreshModelSelect();
-    this.modelSelectEl.addEventListener("change", async () => {
+    this.modelSelectEl.addEventListener("change", () => {
       this.plugin.settings.model = this.modelSelectEl.value;
-      await this.plugin.saveSettings();
+      void this.plugin.saveSettings();
     });
     this.statusBar = footerBar.createDiv({ cls: "copilot-status" });
   }
@@ -320,6 +353,79 @@ export class CopilotChatView extends ItemView {
     return contexts;
   }
 
+  // ── Wikilink autocomplete ──────────────────────────────────────────────
+
+  private checkWikilinkTrigger() {
+    const val = this.inputEl.value;
+    const pos = this.inputEl.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const match = before.match(/\[\[([^[\]]*)$/);
+    if (match) {
+      this.updateWikilinkDropdown(match[1] ?? "");
+    } else {
+      this.hideWikilinkDropdown();
+    }
+  }
+
+  private updateWikilinkDropdown(query: string) {
+    const lq = query.toLowerCase();
+    const files = this.app.vault.getMarkdownFiles()
+      .filter(f => f.basename.toLowerCase().includes(lq))
+      .sort((a, b) => {
+        const aStarts = a.basename.toLowerCase().startsWith(lq);
+        const bStarts = b.basename.toLowerCase().startsWith(lq);
+        if (aStarts !== bStarts) return aStarts ? -1 : 1;
+        return a.basename.localeCompare(b.basename);
+      })
+      .slice(0, 8);
+
+    if (files.length === 0) {
+      this.hideWikilinkDropdown();
+      return;
+    }
+
+    this.wikilinkDropdown.empty();
+    this.wikilinkActiveIndex = 0;
+    files.forEach((file, i) => {
+      const item = this.wikilinkDropdown.createDiv({ cls: "copilot-wikilink-item" });
+      item.dataset.name = file.basename;
+      if (i === 0) item.addClass("is-active");
+      item.setText(file.basename);
+      item.addEventListener("mousedown", (e) => {
+        e.preventDefault();
+        this.insertWikilink(file.basename);
+      });
+    });
+    this.wikilinkDropdown.addClass("is-visible");
+  }
+
+  private highlightWikilinkItem(items: HTMLElement[]) {
+    items.forEach((el, i) => el.classList.toggle("is-active", i === this.wikilinkActiveIndex));
+    items[this.wikilinkActiveIndex]?.scrollIntoView({ block: "nearest" });
+  }
+
+  private insertWikilink(name: string) {
+    if (!name) return;
+    const val = this.inputEl.value;
+    const pos = this.inputEl.selectionStart ?? val.length;
+    const before = val.slice(0, pos);
+    const match = before.match(/\[\[([^[\]]*)$/);
+    if (!match) return;
+    const queryLen = (match[1] ?? "").length;
+    const newBefore = before.slice(0, before.length - queryLen) + name + "]]";
+    this.inputEl.value = newBefore + val.slice(pos);
+    const newPos = newBefore.length;
+    this.inputEl.setSelectionRange(newPos, newPos);
+    this.hideWikilinkDropdown();
+    this.autoResize();
+    this.inputEl.focus();
+  }
+
+  private hideWikilinkDropdown() {
+    this.wikilinkDropdown.removeClass("is-visible");
+    this.wikilinkActiveIndex = -1;
+  }
+
   // ── Document actions ───────────────────────────────────────────────────
 
   private getLastAssistantText(): string | null {
@@ -378,7 +484,7 @@ export class CopilotChatView extends ItemView {
       await this.app.workspace.getLeaf(false).openFile(file);
       new Notice(`New note created: ${filename}`);
     } catch (err) {
-      new Notice(`Error creating note: ${err instanceof Error ? err.message : err}`);
+      new Notice(`Error creating note: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -412,7 +518,7 @@ export class CopilotChatView extends ItemView {
     this.messagesContainer.empty();
     this.renderWelcome();
     const conv = this.plugin.settings.savedConversations.find(c => c.id === this.currentConversationId);
-    if (conv) { conv.messages = []; this.plugin.saveSettings(); }
+    if (conv) { conv.messages = []; void this.plugin.saveSettings(); }
     this.updateStatus("Ready");
   }
 
@@ -450,7 +556,7 @@ export class CopilotChatView extends ItemView {
     };
     this.plugin.settings.savedConversations.push(conv);
     this.plugin.settings.activeConversationId = id;
-    this.plugin.saveSettings();
+    void this.plugin.saveSettings();
     this.currentConversationId = id;
     this.messages = [];
     this.messagesContainer.empty();
@@ -562,7 +668,9 @@ export class CopilotChatView extends ItemView {
   }
 
   private autoResize() {
+    // eslint-disable-next-line obsidianmd/no-static-styles-assignment
     this.inputEl.style.height = "auto";
+    // eslint-disable-next-line obsidianmd/no-static-styles-assignment
     this.inputEl.style.height = Math.min(this.inputEl.scrollHeight, 200) + "px";
   }
 
