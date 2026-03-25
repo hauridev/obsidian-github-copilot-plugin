@@ -61,7 +61,7 @@ jobs:
         if: steps.check.outputs.newer == 'true'
         id: version
         run: |
-          echo "name=$(git describe --abbrev=0 --tags 2>/dev/null || jq -r '.version' manifest.json)" >> $GITHUB_OUTPUT
+          echo "name=${{ steps.manifest_version.outputs.version }}" >> $GITHUB_OUTPUT
 
       - name: Prepare manifest file
         if: steps.check.outputs.newer == 'true'
