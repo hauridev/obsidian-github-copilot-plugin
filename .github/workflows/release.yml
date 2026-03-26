@@ -77,7 +77,7 @@ jobs:
         if: steps.check.outputs.newer == 'true'
         run: |
           mkdir ${{ github.event.repository.name }}
-          cp main.js styles.css manifest.json README.md LICENSE ${{ github.event.repository.name }}
+          cp main.js styles.css manifest.json ${{ github.event.repository.name }}
           zip -r ${{ github.event.repository.name }}-${{ steps.version.outputs.name }}.zip ${{ github.event.repository.name }}
 
       - name: Create git tag
