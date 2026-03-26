@@ -1,7 +1,7 @@
 {
-  "name": "obsidian-copilot-chat",
-  "version": "1.3.1",
-  "description": "Chat with GitHub Copilot directly in Obsidian",
+  "name": "github-copilot-chat",
+  "version": "1.3.2",
+  "description": "Bring GitHub Copilot chat directly into Obsidian, with GitHub Enterprise login support.",
   "main": "main.js",
   "type": "module",
   "scripts": {
