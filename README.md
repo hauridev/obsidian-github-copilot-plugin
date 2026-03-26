@@ -7,7 +7,7 @@ Chat with GitHub Copilot directly in Obsidian — with OAuth login, real-time st
 - **Sidebar Chat** — persistent named conversations with full message history
 - **GitHub OAuth** — secure Device Flow login (no redirect, no API key required)
 - **GitHub Enterprise support** — authenticate against any `*.ghe.com` domain
-- **Streaming responses** — tokens rendered in real-time as they arrive
+- **Streaming responses** — response displayed as plain text once the stream completes
 - **Conversation management** — create, switch, and delete named conversations; history is persisted across sessions
 - **Subscription-based model list** — available models are fetched from the Copilot API and reflect your plan
 - **Active Document as Context** — Copilot sees the content of your currently open note

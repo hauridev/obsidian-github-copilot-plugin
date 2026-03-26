@@ -4,6 +4,7 @@
 import {
   ItemView,
   MarkdownRenderer,
+  MarkdownView,
   Notice,
   TFile,
   WorkspaceLeaf,
@@ -268,11 +269,11 @@ export class CopilotChatView extends ItemView {
         { model: this.plugin.settings.model }
       );
 
-      // Render the full response as markdown
+      // Render the full response as markdown (strip outer ```markdown fence if present)
       assistantBubble.querySelector(".copilot-typing")?.remove();
       contentEl.empty();
       const sourcePath = this.app.workspace.getActiveFile()?.path ?? "";
-      await MarkdownRenderer.render(this.app, fullText, contentEl, sourcePath, this);
+      await MarkdownRenderer.render(this.app, this.unwrapMarkdownFence(fullText), contentEl, sourcePath, this);
 
       // Store and persist
       this.messages.push({ role: "assistant", content: fullText });
@@ -443,13 +444,14 @@ export class CopilotChatView extends ItemView {
       new Notice("No Copilot response available yet.");
       return;
     }
-    const editor = this.app.workspace.activeEditor?.editor;
+    const editor = this.getMarkdownEditor();
     if (!editor) {
       new Notice("No active document open.");
       return;
     }
+    const content = this.unwrapMarkdownFence(text);
     const current = editor.getValue();
-    editor.setValue(current + "\n\n" + text);
+    editor.setValue(current + "\n\n" + content);
     const lastLine = editor.lastLine();
     editor.setCursor({ line: lastLine, ch: editor.getLine(lastLine).length });
     new Notice("Response appended to document.");
@@ -461,14 +463,12 @@ export class CopilotChatView extends ItemView {
       new Notice("No Copilot response available yet.");
       return;
     }
-    const editor = this.app.workspace.activeEditor?.editor;
+    const editor = this.getMarkdownEditor();
     if (!editor) {
       new Notice("No active document open.");
       return;
     }
-    // Extract content from the outer ```markdown fence (greedy — handles inner code fences)
-    const fenceMatch = text.match(/```markdown\n([\s\S]*)```/);
-    const content = fenceMatch?.[1] ?? text;
+    const content = this.unwrapMarkdownFence(text);
     editor.setValue(content);
     editor.setCursor({ line: 0, ch: 0 });
     new Notice("Document replaced with Copilot response.");
@@ -654,7 +654,7 @@ export class CopilotChatView extends ItemView {
       const wrapper = this.renderMessage(msg.role, "");
       const contentEl = wrapper.querySelector(".copilot-msg-content") as HTMLElement;
       if (msg.role === "assistant") {
-        await MarkdownRenderer.render(this.app, msg.content, contentEl, sourcePath, this);
+        await MarkdownRenderer.render(this.app, this.unwrapMarkdownFence(msg.content), contentEl, sourcePath, this);
       } else {
         contentEl.setText(msg.content);
       }
@@ -680,5 +680,23 @@ export class CopilotChatView extends ItemView {
   private truncate(text: string, maxChars: number): string {
     if (text.length <= maxChars) return text;
     return text.slice(0, maxChars) + "\n\n[… document truncated]";
+  }
+
+  /** Strip a single outer ```markdown ... ``` fence if the response is wrapped in one. */
+  private unwrapMarkdownFence(text: string): string {
+    const match = text.match(/^```markdown\n([\s\S]*)```\s*$/);
+    return match?.[1]?.trimEnd() ?? text;
+  }
+
+  /** Get an editor from any open markdown leaf, regardless of which panel has focus. */
+  private getMarkdownEditor() {
+    const active = this.app.workspace.activeEditor?.editor
+      ?? this.app.workspace.getActiveViewOfType(MarkdownView)?.editor;
+    if (active) return active;
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const editor = (leaf.view as MarkdownView).editor;
+      if (editor) return editor;
+    }
+    return null;
   }
 }
