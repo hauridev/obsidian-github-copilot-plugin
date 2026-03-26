@@ -443,14 +443,16 @@ export class CopilotChatView extends ItemView {
       new Notice("No Copilot response available yet.");
       return;
     }
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
+    const editor = this.app.workspace.activeEditor?.editor;
+    if (!editor) {
       new Notice("No active document open.");
       return;
     }
-    const current = await this.app.vault.read(file);
-    await this.app.vault.modify(file, current + "\n\n" + text);
-    new Notice(`Response appended to "${file.basename}".`);
+    const current = editor.getValue();
+    editor.setValue(current + "\n\n" + text);
+    const lastLine = editor.lastLine();
+    editor.setCursor({ line: lastLine, ch: editor.getLine(lastLine).length });
+    new Notice("Response appended to document.");
   }
 
   private async replaceDocumentWithLastResponse() {
@@ -459,16 +461,17 @@ export class CopilotChatView extends ItemView {
       new Notice("No Copilot response available yet.");
       return;
     }
-    const file = this.app.workspace.getActiveFile();
-    if (!file) {
+    const editor = this.app.workspace.activeEditor?.editor;
+    if (!editor) {
       new Notice("No active document open.");
       return;
     }
     // Extract content from the outer ```markdown fence (greedy — handles inner code fences)
     const fenceMatch = text.match(/```markdown\n([\s\S]*)```/);
     const content = fenceMatch?.[1] ?? text;
-    await this.app.vault.modify(file, content);
-    new Notice(`Document "${file.basename}" replaced with Copilot response.`);
+    editor.setValue(content);
+    editor.setCursor({ line: 0, ch: 0 });
+    new Notice("Document replaced with Copilot response.");
   }
 
   async createNoteFromLastResponse() {
@@ -613,7 +616,7 @@ export class CopilotChatView extends ItemView {
 
   private refreshConversationSelect() {
     if (!this.conversationSelect) return;
-    this.conversationSelect.innerHTML = "";
+    this.conversationSelect.empty();
     for (const conv of this.plugin.settings.savedConversations) {
       const opt = document.createElement("option");
       opt.value = conv.id;
@@ -633,7 +636,7 @@ export class CopilotChatView extends ItemView {
     ];
     const models = this.plugin.settings.availableModels.length > 0
       ? this.plugin.settings.availableModels : fallback;
-    this.modelSelectEl.innerHTML = "";
+    this.modelSelectEl.empty();
     for (const m of models) {
       const opt = document.createElement("option");
       opt.value = m.id;

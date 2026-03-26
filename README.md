@@ -119,6 +119,21 @@ src/
 styles.css                   # CSS with variables for dark/light mode
 ```
 
+## Network Access
+
+This plugin makes network requests to the following remote services:
+
+| Service | Endpoint | Purpose |
+|---------|----------|---------|
+| GitHub OAuth | `github.com/login/device/code`, `github.com/login/oauth/access_token` | Authenticate your GitHub account via Device Flow |
+| GitHub API | `api.github.com/copilot_internal/v2/token` | Exchange your GitHub token for a short-lived Copilot API token |
+| GitHub Copilot API | `api.githubcopilot.com` (or enterprise equivalent) | Send chat messages and receive responses from Copilot |
+| GitHub Enterprise | `*.ghe.com` (optional, if configured) | Same as above, routed through your enterprise domain |
+
+No data is sent to any third-party servers. All communication goes directly between your machine and GitHub's servers. No telemetry or analytics are collected by this plugin.
+
+> **Note:** A GitHub account and an active [GitHub Copilot subscription](https://github.com/features/copilot) are required to use this plugin.
+
 ## Disclaimer
 
 This plugin uses the internal Copilot API (`copilot_internal`), which is also used by other community tools (Neovim, Emacs, JetBrains). Use is subject to the [GitHub Copilot Terms of Service](https://docs.github.com/en/site-policy/github-terms/github-terms-for-additional-products-and-features#github-copilot).
@@ -137,4 +152,4 @@ Contributions are welcome! Please open issues and pull requests on the GitHub re
 
 ## License
 
-MIT
+[MIT](LICENSE.md) © Marcel Hauri

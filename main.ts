@@ -139,7 +139,6 @@ export default class CopilotChatPlugin extends Plugin {
       },
     });
 
-    console.debug("GitHub Copilot Chat plugin loaded.");
   }
 
   onunload() {}
